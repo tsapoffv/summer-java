@@ -2,6 +2,7 @@ import javax.swing.*;
 import javax.swing.border.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.*;
 import java.io.*;
 import java.net.*;
 import java.util.*;
@@ -10,32 +11,52 @@ import java.util.List;
 public class BattleshipClientGUI extends JFrame {
     private static final int BOARD_SIZE = 10;
     private static final int[] SHIP_SIZES = {4, 3, 3, 2, 2, 2, 1, 1, 1, 1};
-    private static final int CELL_SIZE = 44;
+    private static final int CELL_SIZE = 48;
+
+    private static final Color BG_DARK = new Color(15, 23, 42);
+    private static final Color BG_PANEL = new Color(30, 41, 59);
+    private static final Color BORDER_COLOR = new Color(71, 85, 105);
+    private static final Color ACCENT_GOLD = new Color(244, 162, 97);
+    private static final Color ACCENT_GOLD_HOVER = new Color(231, 111, 80);
+    private static final Color ACCENT_TEAL = new Color(42, 157, 143);
+    private static final Color WATER_DEEP = new Color(14, 60, 90);
+    private static final Color WATER_MID = new Color(27, 73, 101);
+    private static final Color SHIP_BASE = new Color(92, 103, 125);
+    private static final Color SHIP_HIGHLIGHT = new Color(139, 155, 180);
+    private static final Color HIT_RED = new Color(230, 57, 70);
+    private static final Color HIT_ORANGE = new Color(255, 140, 0);
+    private static final Color MISS_BLUE = new Color(168, 218, 220);
+    private static final Color MISS_LIGHT = new Color(200, 235, 240);
+    private static final Color TEXT_PRIMARY = new Color(248, 250, 252);
+    private static final Color TEXT_SECONDARY = new Color(148, 163, 184);
+    private static final Color SUCCESS = new Color(34, 197, 94);
+    private static final Color DANGER = new Color(239, 68, 68);
 
     private CardLayout cardLayout;
     private JPanel mainPanel;
 
-    // Network
     private Socket socket;
     private DataInputStream in;
     private DataOutputStream out;
     private Thread receiverThread;
     private volatile boolean connected = false;
 
-    // Panels
     private final ConnectionPanel connectionPanel;
     private final SetupPanel setupPanel;
     private final LobbyPanel lobbyPanel;
     private final BattlePanel battlePanel;
+    private final ToastOverlay toastOverlay;
 
     public BattleshipClientGUI() {
         super("Морской бой");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setResizable(false);
+        getContentPane().setBackground(BG_DARK);
 
         cardLayout = new CardLayout();
         mainPanel = new JPanel(cardLayout);
-        mainPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+        mainPanel.setOpaque(false);
+        mainPanel.setBorder(new EmptyBorder(12, 12, 12, 12));
 
         connectionPanel = new ConnectionPanel();
         setupPanel = new SetupPanel();
@@ -47,7 +68,13 @@ public class BattleshipClientGUI extends JFrame {
         mainPanel.add(lobbyPanel, "LOBBY");
         mainPanel.add(battlePanel, "BATTLE");
 
-        add(mainPanel);
+        setLayout(new OverlayLayout(getContentPane()));
+        getContentPane().add(mainPanel);
+
+        toastOverlay = new ToastOverlay();
+        toastOverlay.setOpaque(false);
+        getContentPane().add(toastOverlay);
+
         pack();
         setLocationRelativeTo(null);
         showPanel("CONNECT");
@@ -59,7 +86,9 @@ public class BattleshipClientGUI extends JFrame {
         mainPanel.repaint();
     }
 
-    /* ========================= NETWORK ========================= */
+    public void showToast(String message, ToastType type) {
+        toastOverlay.showToast(message, type);
+    }
 
     private void connect(String host, int port) {
         new Thread(() -> {
@@ -67,11 +96,10 @@ public class BattleshipClientGUI extends JFrame {
                 socket = new Socket(host, port);
                 in = new DataInputStream(socket.getInputStream());
                 out = new DataOutputStream(socket.getOutputStream());
-                // УБРАН setSoTimeout — таймаут вызывал разрывы соединения
                 connected = true;
 
                 SwingUtilities.invokeLater(() -> {
-                    connectionPanel.setStatus("Ожидание запроса поля от сервера...");
+                    connectionPanel.setStatus("Ожидание запроса поля от сервера...", true);
                 });
 
                 receiverThread = new Thread(this::receiveLoop, "NetworkReceiver");
@@ -80,10 +108,8 @@ public class BattleshipClientGUI extends JFrame {
 
             } catch (IOException e) {
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this,
-                        "Не удалось подключиться: " + e.getMessage(),
-                        "Ошибка сети", JOptionPane.ERROR_MESSAGE);
-                    connectionPanel.setStatus("Не подключено");
+                    showToast("Не удалось подключиться: " + e.getMessage(), ToastType.ERROR);
+                    connectionPanel.setStatus("Не подключено", false);
                     connectionPanel.setConnectEnabled(true);
                 });
             }
@@ -107,13 +133,11 @@ public class BattleshipClientGUI extends JFrame {
         } catch (IOException e) {
             if (connected) {
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this,
-                        "Соединение с сервером потеряно.",
-                        "Разрыв", JOptionPane.WARNING_MESSAGE);
+                    showToast("Соединение с сервером потеряно", ToastType.WARNING);
                     disconnect();
                     showPanel("CONNECT");
                     connectionPanel.setConnectEnabled(true);
-                    connectionPanel.setStatus("Не подключено");
+                    connectionPanel.setStatus("Не подключено", false);
                 });
             }
         }
@@ -128,7 +152,7 @@ public class BattleshipClientGUI extends JFrame {
             lobbyPanel.refreshPlayers();
         } else if (msg.startsWith("CMD_ERROR:")) {
             String err = msg.substring(10);
-            JOptionPane.showMessageDialog(this, err, "Ошибка сервера", JOptionPane.ERROR_MESSAGE);
+            showToast(err, ToastType.ERROR);
         } else if (msg.startsWith("PLAYERS:")) {
             String list = msg.substring(8);
             lobbyPanel.updatePlayers(list);
@@ -161,9 +185,9 @@ public class BattleshipClientGUI extends JFrame {
         } else if (msg.startsWith("CMD_GAME_OVER:")) {
             String result = msg.substring(14);
             boolean win = result.equals("WIN");
-            JOptionPane.showMessageDialog(this,
-                win ? "ПОБЕДА! Вы уничтожили все корабли противника." : "ПОРАЖЕНИЕ! Ваш флот уничтожен.",
-                "Игра окончена", win ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+            showToast(
+                win ? "ПОБЕДА! Вы уничтожили все корабли противника!" : "ПОРАЖЕНИЕ! Ваш флот уничтожен.",
+                win ? ToastType.SUCCESS : ToastType.ERROR);
             battlePanel.endGame();
             showPanel("LOBBY");
             lobbyPanel.refreshPlayers();
@@ -178,58 +202,198 @@ public class BattleshipClientGUI extends JFrame {
             out.writeUTF(cmd);
             out.flush();
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Ошибка отправки: " + e.getMessage(), "Сеть", JOptionPane.ERROR_MESSAGE);
+            showToast("Ошибка отправки: " + e.getMessage(), ToastType.ERROR);
         }
     }
 
-    /* ========================= PANELS ========================= */
+    enum ToastType { SUCCESS, ERROR, WARNING, INFO }
+
+    class ToastOverlay extends JComponent {
+        private final List<Toast> toasts = new ArrayList<>();
+
+        void showToast(String message, ToastType type) {
+            Toast toast = new Toast(message, type);
+            toasts.add(toast);
+            repaint();
+
+            javax.swing.Timer fadeTimer = new javax.swing.Timer(16, e -> {
+                toast.progress += 0.016f;
+                if (toast.progress < 0.2f) {
+                    toast.alpha = toast.progress / 0.2f;
+                } else if (toast.progress > 2.5f) {
+                    toast.alpha = Math.max(0, 1f - (toast.progress - 2.5f) / 0.3f);
+                    toast.offsetY -= 2;
+                }
+                if (toast.progress >= 2.8f) {
+                    toasts.remove(toast);
+                    ((javax.swing.Timer)e.getSource()).stop();
+                }
+                repaint();
+            });
+            fadeTimer.start();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int y = 20;
+            for (Toast toast : toasts) {
+                paintToast(g2, toast, y);
+                y += 55;
+            }
+            g2.dispose();
+        }
+
+        private void paintToast(Graphics2D g2, Toast toast, int y) {
+            Color bg, border;
+            switch (toast.type) {
+                case SUCCESS: bg = new Color(34, 197, 94, (int)(180 * toast.alpha)); 
+                              border = new Color(74, 222, 128, (int)(255 * toast.alpha)); break;
+                case ERROR: bg = new Color(239, 68, 68, (int)(180 * toast.alpha)); 
+                            border = new Color(248, 113, 113, (int)(255 * toast.alpha)); break;
+                case WARNING: bg = new Color(245, 158, 11, (int)(180 * toast.alpha)); 
+                              border = new Color(251, 191, 36, (int)(255 * toast.alpha)); break;
+                default: bg = new Color(59, 130, 246, (int)(180 * toast.alpha)); 
+                         border = new Color(96, 165, 250, (int)(255 * toast.alpha)); break;
+            }
+
+            FontMetrics fm = g2.getFontMetrics(new Font("Segoe UI", Font.BOLD, 14));
+            int textWidth = fm.stringWidth(toast.message);
+            int width = textWidth + 40;
+            int height = 42;
+            int x = (getWidth() - width) / 2;
+            int drawY = y + toast.offsetY;
+
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, toast.alpha));
+
+            g2.setColor(new Color(0, 0, 0, 60));
+            g2.fillRoundRect(x + 2, drawY + 2, width, height, 12, 12);
+
+            g2.setColor(bg);
+            g2.fillRoundRect(x, drawY, width, height, 12, 12);
+
+            g2.setColor(border);
+            g2.setStroke(new BasicStroke(1.5f));
+            g2.drawRoundRect(x, drawY, width, height, 12, 12);
+
+            g2.setColor(new Color(255, 255, 255, (int)(255 * toast.alpha)));
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            g2.drawString(toast.message, x + 20, drawY + 28);
+        }
+    }
+
+    class Toast {
+        String message;
+        ToastType type;
+        float alpha = 0;
+        float progress = 0;
+        int offsetY = 0;
+
+        Toast(String message, ToastType type) {
+            this.message = message;
+            this.type = type;
+        }
+    }
 
     class ConnectionPanel extends JPanel {
-        private final JTextField txtHost = new JTextField("127.0.0.1", 12);
-        private final JTextField txtPort = new JTextField("12345", 6);
-        private final JLabel lblStatus = new JLabel("Не подключено");
-        private final JButton btnConnect = new JButton("Подключиться");
+        private final JTextField txtHost;
+        private final JTextField txtPort;
+        private final JLabel lblStatus;
+        private final GradientButton btnConnect;
+        private final JLabel statusIndicator;
 
         ConnectionPanel() {
+            setOpaque(false);
             setLayout(new GridBagLayout());
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(6, 6, 6, 6);
 
+            JLabel title = new JLabel("⚓ МОРСКОЙ БОЙ", SwingConstants.CENTER);
+            title.setFont(new Font("Segoe UI", Font.BOLD, 32));
+            title.setForeground(ACCENT_GOLD);
+
+            JLabel subtitle = new JLabel("Подключитесь к серверу для начала игры", SwingConstants.CENTER);
+            subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            subtitle.setForeground(TEXT_SECONDARY);
+
+            txtHost = new RoundedTextField("127.0.0.1", 12);
+            txtPort = new RoundedTextField("12345", 6);
+
+            lblStatus = new JLabel("Не подключено", SwingConstants.CENTER);
+            lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+            lblStatus.setForeground(DANGER);
+
+            statusIndicator = new JLabel("●");
+            statusIndicator.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            statusIndicator.setForeground(DANGER);
+
+            btnConnect = new GradientButton("Подключиться", ACCENT_GOLD, ACCENT_GOLD_HOVER);
+            btnConnect.setFont(new Font("Segoe UI", Font.BOLD, 15));
+            btnConnect.setPreferredSize(new Dimension(200, 44));
+
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(8, 8, 8, 8);
+            gbc.gridwidth = 2;
             gbc.gridx = 0; gbc.gridy = 0;
-            add(new JLabel("Сервер:"), gbc);
+            add(title, gbc);
+            gbc.gridy = 1;
+            add(subtitle, gbc);
+
+            gbc.gridwidth = 1;
+            gbc.gridy = 2;
+            JLabel lblHost = new JLabel("Сервер:");
+            lblHost.setForeground(TEXT_PRIMARY);
+            lblHost.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            add(lblHost, gbc);
             gbc.gridx = 1;
             add(txtHost, gbc);
 
-            gbc.gridx = 0; gbc.gridy = 1;
-            add(new JLabel("Порт:"), gbc);
+            gbc.gridx = 0; gbc.gridy = 3;
+            JLabel lblPort = new JLabel("Порт:");
+            lblPort.setForeground(TEXT_PRIMARY);
+            lblPort.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            add(lblPort, gbc);
             gbc.gridx = 1;
             add(txtPort, gbc);
 
-            gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
+            gbc.gridwidth = 2;
+            gbc.gridx = 0; gbc.gridy = 4;
+            gbc.insets = new Insets(20, 8, 8, 8);
             add(btnConnect, gbc);
 
-            gbc.gridy = 3;
-            add(lblStatus, gbc);
+            gbc.gridy = 5;
+            gbc.insets = new Insets(12, 8, 8, 8);
+            JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+            statusPanel.setOpaque(false);
+            statusPanel.add(statusIndicator);
+            statusPanel.add(lblStatus);
+            add(statusPanel, gbc);
 
             btnConnect.addActionListener(e -> {
                 btnConnect.setEnabled(false);
                 lblStatus.setText("Подключение...");
+                statusIndicator.setForeground(ACCENT_GOLD);
                 connect(txtHost.getText().trim(), Integer.parseInt(txtPort.getText().trim()));
             });
         }
 
-        void setStatus(String s) { lblStatus.setText(s); }
+        void setStatus(String s, boolean connecting) {
+            lblStatus.setText(s);
+            statusIndicator.setForeground(connecting ? ACCENT_GOLD : DANGER);
+            lblStatus.setForeground(connecting ? ACCENT_GOLD : DANGER);
+        }
         void setConnectEnabled(boolean b) { btnConnect.setEnabled(b); }
     }
 
     class SetupPanel extends JPanel {
         private final BoardPanel board;
-        private final JPanel shipPalette = new JPanel();
-        private final JLabel lblInfo = new JLabel("Выберите корабль и кликните на поле");
-        private final JButton btnRotate = new JButton("Повернуть (R)");
-        private final JButton btnAuto = new JButton("Авто");
-        private final JButton btnClear = new JButton("Очистить");
-        private final JButton btnReady = new JButton("Готов");
+        private final JPanel shipPalette;
+        private final JLabel lblInfo;
+        private final GradientButton btnRotate;
+        private final GradientButton btnAuto;
+        private final GradientButton btnClear;
+        private final GradientButton btnReady;
 
         private boolean[][] field = new boolean[BOARD_SIZE][BOARD_SIZE];
         private final List<Integer> remainingShips = new ArrayList<>();
@@ -237,36 +401,66 @@ public class BattleshipClientGUI extends JFrame {
         private boolean horizontal = true;
 
         SetupPanel() {
-            setLayout(new BorderLayout(10, 10));
-            setBorder(new EmptyBorder(10, 10, 10, 10));
+            setOpaque(false);
+            setLayout(new BorderLayout(15, 15));
+            setBorder(new EmptyBorder(15, 15, 15, 15));
 
-            lblInfo.setFont(new Font("Segoe UI", Font.BOLD, 14));
-            add(lblInfo, BorderLayout.NORTH);
+            JPanel header = new JPanel(new BorderLayout());
+            header.setOpaque(false);
+            JLabel title = new JLabel("Расстановка кораблей", SwingConstants.CENTER);
+            title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+            title.setForeground(ACCENT_GOLD);
+            header.add(title, BorderLayout.NORTH);
+
+            lblInfo = new JLabel("Выберите корабль и разместите на поле", SwingConstants.CENTER);
+            lblInfo.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            lblInfo.setForeground(TEXT_SECONDARY);
+            header.add(lblInfo, BorderLayout.SOUTH);
+            add(header, BorderLayout.NORTH);
+
+            JPanel center = new JPanel(new BorderLayout(20, 0));
+            center.setOpaque(false);
 
             board = new BoardPanel(BOARD_SIZE, CELL_SIZE, BoardPanel.Mode.SETUP);
-            add(board, BorderLayout.CENTER);
+            JPanel boardWrap = createPanelWrapper("Ваше поле", board);
+            center.add(boardWrap, BorderLayout.CENTER);
 
-            // Palette
-            shipPalette.setLayout(new GridLayout(0, 1, 6, 6));
-            shipPalette.setBorder(new TitledBorder("Доступные корабли"));
-            add(shipPalette, BorderLayout.EAST);
+            shipPalette = new JPanel();
+            shipPalette.setLayout(new GridLayout(0, 1, 8, 8));
+            shipPalette.setOpaque(false);
+            shipPalette.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            // Bottom controls
-            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+            JPanel paletteWrap = createPanelWrapper("Доступные корабли", shipPalette);
+            paletteWrap.setPreferredSize(new Dimension(200, 0));
+            center.add(paletteWrap, BorderLayout.EAST);
+
+            add(center, BorderLayout.CENTER);
+
+            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+            bottom.setOpaque(false);
+            bottom.setBorder(new EmptyBorder(10, 0, 0, 0));
+
+            btnRotate = new GradientButton("↻ Повернуть (R)", new Color(59, 130, 246), new Color(37, 99, 235));
+            btnAuto = new GradientButton("🎲 Авто", new Color(139, 92, 246), new Color(124, 58, 237));
+            btnClear = new GradientButton("🗑 Очистить", new Color(100, 116, 139), new Color(71, 85, 105));
+            btnReady = new GradientButton("✓ Готов", ACCENT_TEAL, new Color(20, 130, 120));
             btnReady.setEnabled(false);
-            btnReady.setBackground(new Color(50, 150, 50));
-            btnReady.setForeground(Color.WHITE);
-            btnReady.setFocusPainted(false);
+
+            for (GradientButton btn : new GradientButton[]{btnRotate, btnAuto, btnClear, btnReady}) {
+                btn.setPreferredSize(new Dimension(130, 40));
+                btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            }
+
             bottom.add(btnRotate);
             bottom.add(btnAuto);
             bottom.add(btnClear);
             bottom.add(btnReady);
             add(bottom, BorderLayout.SOUTH);
 
-            // Listeners
             btnRotate.addActionListener(e -> {
                 horizontal = !horizontal;
                 board.repaint();
+                updateInfo();
             });
             btnAuto.addActionListener(e -> autoPlace());
             btnClear.addActionListener(e -> reset());
@@ -279,6 +473,7 @@ public class BattleshipClientGUI extends JFrame {
                 public void actionPerformed(ActionEvent e) {
                     horizontal = !horizontal;
                     board.repaint();
+                    updateInfo();
                 }
             });
 
@@ -296,6 +491,9 @@ public class BattleshipClientGUI extends JFrame {
                         refreshBoard();
                         rebuildPalette();
                         checkReady();
+                        board.clearHighlight();
+                    } else {
+                        showToast("Нельзя разместить корабль здесь", ToastType.WARNING);
                     }
                 }
             });
@@ -315,6 +513,33 @@ public class BattleshipClientGUI extends JFrame {
             });
         }
 
+        private JPanel createPanelWrapper(String title, JComponent content) {
+            JLabel lbl = new JLabel(title, SwingConstants.CENTER);
+            lbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            lbl.setForeground(TEXT_SECONDARY);
+            lbl.setBorder(new EmptyBorder(0, 0, 8, 0));
+
+            JPanel wrapper = new JPanel(new BorderLayout()) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(BG_PANEL);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                    g2.setColor(BORDER_COLOR);
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+                    g2.dispose();
+                    super.paintComponent(g);
+                }
+            };
+            wrapper.setOpaque(false);
+            wrapper.setBorder(new EmptyBorder(10, 10, 10, 10));
+            wrapper.add(lbl, BorderLayout.NORTH);
+            wrapper.add(content, BorderLayout.CENTER);
+            return wrapper;
+        }
+
         boolean[][] getField() { return field; }
 
         void reset() {
@@ -326,7 +551,18 @@ public class BattleshipClientGUI extends JFrame {
             refreshBoard();
             rebuildPalette();
             btnReady.setEnabled(false);
-            lblInfo.setText("Выберите корабль и кликните на поле");
+            lblInfo.setText("Выберите корабль и разместите на поле");
+            lblInfo.setForeground(TEXT_SECONDARY);
+        }
+
+        private void updateInfo() {
+            if (selectedShipSize > 0) {
+                lblInfo.setText("Выбран " + selectedShipSize + "-палубный. Поворот: " + (horizontal ? "→" : "↓") + " (R)");
+                lblInfo.setForeground(ACCENT_GOLD);
+            } else {
+                lblInfo.setText("Осталось разместить: " + remainingShips.size() + " кораблей");
+                lblInfo.setForeground(TEXT_SECONDARY);
+            }
         }
 
         private void refreshBoard() {
@@ -341,27 +577,83 @@ public class BattleshipClientGUI extends JFrame {
             shipPalette.removeAll();
             Map<Integer, Integer> counts = new LinkedHashMap<>();
             for (int s : remainingShips) counts.merge(s, 1, Integer::sum);
+
             for (int size : new int[]{4, 3, 2, 1}) {
                 int cnt = counts.getOrDefault(size, 0);
                 if (cnt > 0) {
-                    JButton btn = new JButton(size + " палуб ×" + cnt);
-                    btn.setFocusPainted(false);
-                    btn.addActionListener(e -> {
-                        selectedShipSize = size;
-                        lblInfo.setText("Выбран " + size + "-палубный. Клик на поле. Поворот: " + (horizontal ? "→" : "↓") + " (R)");
-                    });
-                    shipPalette.add(btn);
+                    JPanel shipItem = createShipItem(size, cnt);
+                    shipPalette.add(shipItem);
                 }
             }
-            lblInfo.setText("Осталось разместить: " + remainingShips.size() + " кораблей");
+            updateInfo();
             shipPalette.revalidate();
             shipPalette.repaint();
+        }
+
+        private JPanel createShipItem(int size, int count) {
+            JPanel item = new JPanel(new BorderLayout(8, 0));
+            item.setOpaque(false);
+            item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            item.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+
+            JPanel shipVisual = new JPanel() {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int cellW = 18;
+                    int cellH = 14;
+                    int gap = 2;
+                    for (int i = 0; i < size; i++) {
+                        int x = i * (cellW + gap);
+                        GradientPaint gp = new GradientPaint(x, 0, SHIP_HIGHLIGHT, x, cellH, SHIP_BASE);
+                        g2.setPaint(gp);
+                        g2.fillRoundRect(x, 0, cellW, cellH, 4, 4);
+                        g2.setColor(new Color(60, 70, 90));
+                        g2.drawRoundRect(x, 0, cellW, cellH, 4, 4);
+                    }
+                    g2.dispose();
+                }
+                @Override
+                public Dimension getPreferredSize() {
+                    return new Dimension(size * 20 + 4, 16);
+                }
+            };
+            shipVisual.setOpaque(false);
+
+            JLabel countLabel = new JLabel("×" + count);
+            countLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            countLabel.setForeground(ACCENT_GOLD);
+
+            item.add(shipVisual, BorderLayout.WEST);
+            item.add(countLabel, BorderLayout.EAST);
+
+            item.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    item.setBackground(new Color(51, 65, 85, 100));
+                }
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    item.setBackground(null);
+                }
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    selectedShipSize = size;
+                    updateInfo();
+                }
+            });
+
+            return item;
         }
 
         private void checkReady() {
             btnReady.setEnabled(remainingShips.isEmpty());
             if (remainingShips.isEmpty()) {
                 lblInfo.setText("Все корабли на месте! Нажмите «Готов»");
+                lblInfo.setForeground(SUCCESS);
+                showToast("Все корабли расставлены!", ToastType.SUCCESS);
             }
         }
 
@@ -376,6 +668,8 @@ public class BattleshipClientGUI extends JFrame {
             rebuildPalette();
             btnReady.setEnabled(true);
             lblInfo.setText("Поле сгенерировано автоматически");
+            lblInfo.setForeground(ACCENT_TEAL);
+            showToast("Корабли расставлены автоматически", ToastType.INFO);
         }
 
         private void submitField() {
@@ -386,7 +680,6 @@ public class BattleshipClientGUI extends JFrame {
             send("SET_FIELD:" + sb.toString());
         }
 
-        // ----- Field logic from Client.java -----
         private boolean canPlace(boolean[][] f, int x, int y, int size, boolean horiz) {
             if (horiz) {
                 if (y + size > BOARD_SIZE) return false;
@@ -443,36 +736,73 @@ public class BattleshipClientGUI extends JFrame {
     }
 
     class LobbyPanel extends JPanel {
-        private final DefaultListModel<String> listModel = new DefaultListModel<>();
-        private final JList<String> playerList = new JList<>(listModel);
-        private final JButton btnRefresh = new JButton("Обновить список");
-        private final JButton btnChallenge = new JButton("Вызвать на бой");
+        private final DefaultListModel<PlayerItem> listModel = new DefaultListModel<>();
+        private final JList<PlayerItem> playerList;
+        private final GradientButton btnRefresh;
+        private final GradientButton btnChallenge;
 
         LobbyPanel() {
-            setLayout(new BorderLayout(10, 10));
-            setBorder(new EmptyBorder(10, 10, 10, 10));
-            add(new JLabel("Доступные игроки в лобби:"), BorderLayout.NORTH);
+            setOpaque(false);
+            setLayout(new BorderLayout(15, 15));
+            setBorder(new EmptyBorder(15, 15, 15, 15));
 
+            JPanel header = new JPanel(new BorderLayout());
+            header.setOpaque(false);
+            JLabel title = new JLabel("Лобби", SwingConstants.CENTER);
+            title.setFont(new Font("Segoe UI", Font.BOLD, 24));
+            title.setForeground(ACCENT_GOLD);
+            header.add(title, BorderLayout.NORTH);
+
+            JLabel subtitle = new JLabel("Выберите противника для боя", SwingConstants.CENTER);
+            subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            subtitle.setForeground(TEXT_SECONDARY);
+            header.add(subtitle, BorderLayout.SOUTH);
+            add(header, BorderLayout.NORTH);
+
+            playerList = new JList<>(listModel);
+            playerList.setOpaque(false);
+            playerList.setCellRenderer(new PlayerCellRenderer());
             playerList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-            playerList.setFont(new Font("Consolas", Font.PLAIN, 14));
-            JScrollPane sp = new JScrollPane(playerList);
-            sp.setPreferredSize(new Dimension(300, 200));
-            add(sp, BorderLayout.CENTER);
+            playerList.setBorder(null);
 
-            JPanel bottom = new JPanel(new FlowLayout());
+            JScrollPane sp = new JScrollPane(playerList);
+            sp.setOpaque(false);
+            sp.getViewport().setOpaque(false);
+            sp.setBorder(BorderFactory.createCompoundBorder(
+                new RoundedBorder(12, BORDER_COLOR, 1.5f),
+                new EmptyBorder(8, 8, 8, 8)
+            ));
+            sp.setPreferredSize(new Dimension(350, 280));
+
+            JPanel listWrapper = new JPanel(new BorderLayout());
+            listWrapper.setOpaque(false);
+            listWrapper.add(sp, BorderLayout.CENTER);
+            add(listWrapper, BorderLayout.CENTER);
+
+            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+            bottom.setOpaque(false);
+            bottom.setBorder(new EmptyBorder(10, 0, 0, 0));
+
+            btnRefresh = new GradientButton("↻ Обновить", new Color(59, 130, 246), new Color(37, 99, 235));
+            btnChallenge = new GradientButton("⚔ Вызвать на бой", ACCENT_GOLD, ACCENT_GOLD_HOVER);
+
+            for (GradientButton btn : new GradientButton[]{btnRefresh, btnChallenge}) {
+                btn.setPreferredSize(new Dimension(160, 42));
+                btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            }
+
             bottom.add(btnRefresh);
             bottom.add(btnChallenge);
             add(bottom, BorderLayout.SOUTH);
 
             btnRefresh.addActionListener(e -> refreshPlayers());
             btnChallenge.addActionListener(e -> {
-                String sel = playerList.getSelectedValue();
-                if (sel == null || sel.startsWith("(")) {
-                    JOptionPane.showMessageDialog(this, "Выберите противника из списка", "Внимание", JOptionPane.WARNING_MESSAGE);
+                PlayerItem sel = playerList.getSelectedValue();
+                if (sel == null) {
+                    showToast("Выберите противника из списка", ToastType.WARNING);
                     return;
                 }
-                int id = Integer.parseInt(sel.split(" ")[0]);
-                send("SELECT_PLAYER:" + id);
+                send("SELECT_PLAYER:" + sel.id);
             });
         }
 
@@ -484,70 +814,162 @@ public class BattleshipClientGUI extends JFrame {
         void updatePlayers(String data) {
             listModel.clear();
             if (data.isEmpty()) {
-                listModel.addElement("(нет свободных игроков)");
                 return;
             }
-            for (String id : data.split(",")) {
-                listModel.addElement(id + " — игрок");
+            for (String idStr : data.split(",")) {
+                try {
+                    int id = Integer.parseInt(idStr.trim());
+                    listModel.addElement(new PlayerItem(id, "Игрок " + id));
+                } catch (NumberFormatException ignored) {}
             }
+        }
+    }
+
+    class PlayerItem {
+        int id;
+        String name;
+        PlayerItem(int id, String name) { this.id = id; this.name = name; }
+    }
+
+    class PlayerCellRenderer extends JPanel implements ListCellRenderer<PlayerItem> {
+        private final JLabel iconLabel = new JLabel("👤");
+        private final JLabel nameLabel = new JLabel();
+        private final JLabel idLabel = new JLabel();
+        private boolean isSelected;
+
+        PlayerCellRenderer() {
+            setLayout(new BorderLayout(10, 0));
+            setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            setOpaque(false);
+
+            iconLabel.setFont(new Font("Segoe UI", Font.PLAIN, 20));
+
+            JPanel textPanel = new JPanel(new GridLayout(2, 1));
+            textPanel.setOpaque(false);
+            nameLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            nameLabel.setForeground(TEXT_PRIMARY);
+            idLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            idLabel.setForeground(TEXT_SECONDARY);
+            textPanel.add(nameLabel);
+            textPanel.add(idLabel);
+
+            add(iconLabel, BorderLayout.WEST);
+            add(textPanel, BorderLayout.CENTER);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<? extends PlayerItem> list, PlayerItem value, 
+                int index, boolean isSelected, boolean cellHasFocus) {
+            this.isSelected = isSelected;
+            nameLabel.setText(value.name);
+            idLabel.setText("ID: " + value.id);
+            return this;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (isSelected) {
+                g2.setColor(new Color(244, 162, 97, 40));
+                g2.fillRoundRect(4, 2, getWidth() - 8, getHeight() - 4, 10, 10);
+                g2.setColor(ACCENT_GOLD);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(4, 2, getWidth() - 8, getHeight() - 4, 10, 10);
+            }
+            g2.dispose();
+            super.paintComponent(g);
         }
     }
 
     class BattlePanel extends JPanel {
         private final BoardPanel myBoard;
         private final BoardPanel enemyBoard;
-        private final JLabel lblStatus = new JLabel("Ожидание начала боя...");
-        private final JTextArea log = new JTextArea(6, 40);
-        private final JButton btnSurrender = new JButton("Сдаться");
-        private final JLabel lblSunkShips = new JLabel(" ");
+        private final JLabel lblStatus;
+        private final JLabel lblStatusIcon;
+        private final EventLog log;
+        private final GradientButton btnSurrender;
+        private final JLabel lblShipsRemaining;
+        private final JPanel statusBanner;
 
         private boolean inGame = false;
         private boolean myTurn = false;
-        private final int[][] myCells = new int[BOARD_SIZE][BOARD_SIZE];   // 0 water, 1 ship, 2 hit, 3 miss
-        private final int[][] enemyCells = new int[BOARD_SIZE][BOARD_SIZE]; // 0 unknown, 2 hit, 3 miss
+        private final int[][] myCells = new int[BOARD_SIZE][BOARD_SIZE];
+        private final int[][] enemyCells = new int[BOARD_SIZE][BOARD_SIZE];
+        private int myShipsSunk = 0;
+        private int enemyShipsSunk = 0;
 
         BattlePanel() {
-            setLayout(new BorderLayout(10, 10));
-            setBorder(new EmptyBorder(10, 10, 10, 10));
+            setOpaque(false);
+            setLayout(new BorderLayout(15, 15));
+            setBorder(new EmptyBorder(15, 15, 15, 15));
 
-            // Top status area
-            JPanel topPanel = new JPanel(new BorderLayout());
-            lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 16));
-            lblStatus.setHorizontalAlignment(SwingConstants.CENTER);
-            topPanel.add(lblStatus, BorderLayout.CENTER);
+            statusBanner = new JPanel(new BorderLayout()) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(BG_PANEL);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                    g2.setColor(BORDER_COLOR);
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+                    g2.dispose();
+                    super.paintComponent(g);
+                }
+            };
+            statusBanner.setOpaque(false);
+            statusBanner.setBorder(new EmptyBorder(12, 20, 12, 20));
 
-            lblSunkShips.setFont(new Font("Segoe UI", Font.BOLD, 13));
-            lblSunkShips.setHorizontalAlignment(SwingConstants.CENTER);
-            lblSunkShips.setForeground(new Color(180, 0, 0));
-            topPanel.add(lblSunkShips, BorderLayout.SOUTH);
+            lblStatusIcon = new JLabel("⚔", SwingConstants.CENTER);
+            lblStatusIcon.setFont(new Font("Segoe UI", Font.PLAIN, 24));
 
-            add(topPanel, BorderLayout.NORTH);
+            lblStatus = new JLabel("Ожидание начала боя...", SwingConstants.CENTER);
+            lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 18));
+            lblStatus.setForeground(TEXT_SECONDARY);
 
-            // Center boards
+            lblShipsRemaining = new JLabel("Ваши корабли: 10  |  Корабли врага: 10", SwingConstants.CENTER);
+            lblShipsRemaining.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            lblShipsRemaining.setForeground(TEXT_SECONDARY);
+
+            JPanel statusText = new JPanel(new GridLayout(2, 1, 0, 4));
+            statusText.setOpaque(false);
+            statusText.add(lblStatus);
+            statusText.add(lblShipsRemaining);
+
+            statusBanner.add(lblStatusIcon, BorderLayout.WEST);
+            statusBanner.add(statusText, BorderLayout.CENTER);
+            add(statusBanner, BorderLayout.NORTH);
+
             JPanel boards = new JPanel(new GridLayout(1, 2, 20, 0));
+            boards.setOpaque(false);
+
             myBoard = new BoardPanel(BOARD_SIZE, CELL_SIZE, BoardPanel.Mode.MY_FIELD);
             enemyBoard = new BoardPanel(BOARD_SIZE, CELL_SIZE, BoardPanel.Mode.ENEMY_FIELD);
 
-            JPanel leftWrap = new JPanel(new BorderLayout());
-            leftWrap.add(new JLabel("Ваше поле", SwingConstants.CENTER), BorderLayout.NORTH);
-            leftWrap.add(myBoard, BorderLayout.CENTER);
-
-            JPanel rightWrap = new JPanel(new BorderLayout());
-            rightWrap.add(new JLabel("Поле противника", SwingConstants.CENTER), BorderLayout.NORTH);
-            rightWrap.add(enemyBoard, BorderLayout.CENTER);
-
-            boards.add(leftWrap);
-            boards.add(rightWrap);
+            boards.add(createBoardWrapper("🛡 Ваше поле", myBoard));
+            boards.add(createBoardWrapper("🎯 Поле противника", enemyBoard));
             add(boards, BorderLayout.CENTER);
 
-            // Bottom: log + surrender
-            JPanel bottom = new JPanel(new BorderLayout(5, 5));
-            log.setEditable(false);
-            log.setFont(new Font("Consolas", Font.PLAIN, 12));
+            JPanel bottom = new JPanel(new BorderLayout(10, 10));
+            bottom.setOpaque(false);
+
+            log = new EventLog();
             JScrollPane logScroll = new JScrollPane(log);
+            logScroll.setOpaque(false);
+            logScroll.getViewport().setOpaque(false);
+            logScroll.setBorder(BorderFactory.createCompoundBorder(
+                new RoundedBorder(12, BORDER_COLOR, 1.5f),
+                new EmptyBorder(8, 8, 8, 8)
+            ));
+            logScroll.setPreferredSize(new Dimension(0, 140));
             bottom.add(logScroll, BorderLayout.CENTER);
 
-            JPanel btnPanel = new JPanel(new FlowLayout());
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+            btnPanel.setOpaque(false);
+            btnSurrender = new GradientButton("🏳 Сдаться", DANGER, new Color(185, 28, 28));
+            btnSurrender.setPreferredSize(new Dimension(140, 40));
+            btnSurrender.setFont(new Font("Segoe UI", Font.BOLD, 13));
             btnSurrender.addActionListener(e -> {
                 send("SURRENDER");
                 inGame = false;
@@ -557,7 +979,6 @@ public class BattleshipClientGUI extends JFrame {
             bottom.add(btnPanel, BorderLayout.SOUTH);
             add(bottom, BorderLayout.SOUTH);
 
-            // Enemy board click
             enemyBoard.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
@@ -566,28 +987,72 @@ public class BattleshipClientGUI extends JFrame {
                     int col = e.getX() / CELL_SIZE;
                     if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return;
                     if (enemyCells[row][col] != 0) {
-                        log("Уже стреляли сюда!");
+                        showToast("Уже стреляли сюда!", ToastType.WARNING);
                         return;
                     }
                     send("MOVE:" + row + ":" + col);
                 }
             });
+
+            enemyBoard.addMouseMotionListener(new MouseMotionAdapter() {
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    if (!inGame || !myTurn) return;
+                    int row = e.getY() / CELL_SIZE;
+                    int col = e.getX() / CELL_SIZE;
+                    if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE && enemyCells[row][col] == 0) {
+                        enemyBoard.setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+                    } else {
+                        enemyBoard.setCursor(Cursor.getDefaultCursor());
+                    }
+                }
+            });
+        }
+
+        private JPanel createBoardWrapper(String title, BoardPanel board) {
+            JLabel lbl = new JLabel(title, SwingConstants.CENTER);
+            lbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            lbl.setForeground(TEXT_SECONDARY);
+            lbl.setBorder(new EmptyBorder(0, 0, 8, 0));
+
+            JPanel wrapper = new JPanel(new BorderLayout()) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(BG_PANEL);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                    g2.setColor(BORDER_COLOR);
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
+                    g2.dispose();
+                    super.paintComponent(g);
+                }
+            };
+            wrapper.setOpaque(false);
+            wrapper.setBorder(new EmptyBorder(10, 10, 10, 10));
+            wrapper.add(lbl, BorderLayout.NORTH);
+            wrapper.add(board, BorderLayout.CENTER);
+            return wrapper;
         }
 
         void initGame(String info) {
             inGame = true;
             myTurn = false;
+            myShipsSunk = 0;
+            enemyShipsSunk = 0;
             lblStatus.setText("Бой начался! " + info);
-            lblSunkShips.setText(" ");
-            log.setText("");
-            log("=== Бой начался ===");
-            log(info);
+            lblStatus.setForeground(TEXT_PRIMARY);
+            lblStatusIcon.setText("⚔");
+            lblShipsRemaining.setText("Ваши корабли: 10  |  Корабли врага: 10");
+            log.clear();
+            log.addEvent("=== Бой начался ===", EventType.SYSTEM);
+            log.addEvent(info, EventType.SYSTEM);
 
             for (int i = 0; i < BOARD_SIZE; i++) {
                 Arrays.fill(myCells[i], 0);
                 Arrays.fill(enemyCells[i], 0);
             }
-            // Load my field from setup
             boolean[][] myField = setupPanel.getField();
             for (int i = 0; i < BOARD_SIZE; i++) {
                 for (int j = 0; j < BOARD_SIZE; j++) {
@@ -600,78 +1065,81 @@ public class BattleshipClientGUI extends JFrame {
 
         void setMyTurn(boolean turn) {
             myTurn = turn;
-            lblStatus.setText(turn ? "ВАШ ХОД — кликайте по полю противника" : "Ход противника...");
-            lblStatus.setForeground(turn ? new Color(0, 128, 0) : Color.GRAY);
-            if (turn) log("Ваш ход!");
+            if (turn) {
+                lblStatus.setText("ВАШ ХОД — выберите клетку на поле противника");
+                lblStatus.setForeground(SUCCESS);
+                lblStatusIcon.setText("🎯");
+                log.addEvent("Ваш ход!", EventType.SUCCESS);
+            } else {
+                lblStatus.setText("Ход противника...");
+                lblStatus.setForeground(TEXT_SECONDARY);
+                lblStatusIcon.setText("⏳");
+            }
         }
 
         void applyMyMove(int x, int y, String result) {
-            if (result.equals("HIT")) {
-                enemyCells[x][y] = 2;
-                log("Выстрел (" + x + "," + y + "): ПОПАДАНИЕ!");
-            } else if (result.equals("MISS")) {
-                enemyCells[x][y] = 3;
-                log("Выстрел (" + x + "," + y + "): Мимо.");
-            } else if (result.equals("SUNK")) {
-                enemyCells[x][y] = 2;
-                log("Выстрел (" + x + "," + y + "): КОРАБЛЬ УНИЧТОЖЕН!");
-                showSunkNotification("Вы уничтожили корабль противника!", false);
-            } else if (result.equals("WIN")) {
-                enemyCells[x][y] = 2;
-                log("Выстрел (" + x + "," + y + "): ПОТОПЛЕН! Победа!");
+            switch (result) {
+                case "HIT":
+                    enemyCells[x][y] = 2;
+                    log.addEvent("Выстрел (" + x + "," + y + "): Попадание!", EventType.SUCCESS);
+                    break;
+                case "MISS":
+                    enemyCells[x][y] = 3;
+                    log.addEvent("Выстрел (" + x + "," + y + "): Мимо", EventType.INFO);
+                    break;
+                case "SUNK":
+                    enemyCells[x][y] = 2;
+                    enemyShipsSunk++;
+                    lblShipsRemaining.setText("Ваши корабли: " + (10 - myShipsSunk) + "  |  Корабли врага: " + (10 - enemyShipsSunk));
+                    log.addEvent("Выстрел (" + x + "," + y + "): КОРАБЛЬ УНИЧТОЖЕН!", EventType.SUCCESS);
+                    showToast("🚢 Корабль противника уничтожен!", ToastType.SUCCESS);
+                    break;
+                case "WIN":
+                    enemyCells[x][y] = 2;
+                    log.addEvent("Выстрел (" + x + "," + y + "): ПОБЕДА!", EventType.SUCCESS);
+                    break;
             }
             enemyBoard.setCells(copyCells(enemyCells));
         }
 
         void applyOpponentMove(int x, int y, String result) {
-            if (result.equals("HIT")) {
-                myCells[x][y] = 2;
-                log("Противник (" + x + "," + y + "): ПОПАДАНИЕ по вашему кораблю!");
-            } else if (result.equals("MISS")) {
-                myCells[x][y] = 3;
-                log("Противник (" + x + "," + y + "): Мимо.");
-            } else if (result.equals("SUNK")) {
-                myCells[x][y] = 2;
-                log("Противник (" + x + "," + y + "): Ваш корабль УНИЧТОЖЕН!");
-                showSunkNotification("Ваш корабль уничтожен!", true);
-            } else if (result.equals("WIN")) {
-                myCells[x][y] = 2;
-                log("Противник (" + x + "," + y + "): Потопил последний корабль.");
+            switch (result) {
+                case "HIT":
+                    myCells[x][y] = 2;
+                    log.addEvent("Противник (" + x + "," + y + "): Попадание по вашему кораблю!", EventType.WARNING);
+                    break;
+                case "MISS":
+                    myCells[x][y] = 3;
+                    log.addEvent("Противник (" + x + "," + y + "): Мимо", EventType.INFO);
+                    break;
+                case "SUNK":
+                    myCells[x][y] = 2;
+                    myShipsSunk++;
+                    lblShipsRemaining.setText("Ваши корабли: " + (10 - myShipsSunk) + "  |  Корабли врага: " + (10 - enemyShipsSunk));
+                    log.addEvent("Противник (" + x + "," + y + "): Ваш корабль УНИЧТОЖЕН!", EventType.DANGER);
+                    showToast("💥 Ваш корабль уничтожен!", ToastType.ERROR);
+                    break;
+                case "WIN":
+                    myCells[x][y] = 2;
+                    log.addEvent("Противник (" + x + "," + y + "): Потопил последний корабль", EventType.DANGER);
+                    break;
             }
             myBoard.setCells(copyCells(myCells));
         }
 
-        /**
-         * Shows a clear visual notification when a ship is sunk.
-         * @param message the message to display
-         * @param isMyShip true if it's the player's ship that was sunk
-         */
-        private void showSunkNotification(String message, boolean isMyShip) {
-            lblSunkShips.setText(message);
-            lblSunkShips.setForeground(isMyShip ? new Color(200, 0, 0) : new Color(0, 150, 0));
-
-            // Flash effect: clear after 3 seconds
-            javax.swing.Timer timer = new javax.swing.Timer(3000, e -> {
-                lblSunkShips.setText(" ");
-            });
-            timer.setRepeats(false);
-            timer.start();
-        }
-
         void showAgain() {
-            log("Попадание! Ходите ещё.");
+            log.addEvent("Попадание! Ходите ещё", EventType.SUCCESS);
             lblStatus.setText("ВАШ ХОД (попадание!) — стреляйте ещё");
+            lblStatus.setForeground(new Color(250, 204, 21));
         }
 
         void endGame() {
             inGame = false;
             myTurn = false;
-            lblSunkShips.setText(" ");
         }
 
         void log(String msg) {
-            log.append(msg + "\n");
-            log.setCaretPosition(log.getDocument().getLength());
+            log.addEvent(msg, EventType.INFO);
         }
 
         private int[][] copyCells(int[][] src) {
@@ -681,7 +1149,65 @@ public class BattleshipClientGUI extends JFrame {
         }
     }
 
-    /* ========================= BOARD PANEL ========================= */
+    enum EventType { SYSTEM, SUCCESS, WARNING, DANGER, INFO }
+
+    class EventLog extends JPanel {
+        private final List<EventItem> events = new ArrayList<>();
+        private final JPanel contentPanel;
+
+        EventLog() {
+            setLayout(new BorderLayout());
+            setOpaque(false);
+            contentPanel = new JPanel();
+            contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+            contentPanel.setOpaque(false);
+            add(contentPanel, BorderLayout.NORTH);
+        }
+
+        void addEvent(String message, EventType type) {
+            EventItem item = new EventItem(message, type);
+            events.add(item);
+            contentPanel.add(item);
+            contentPanel.add(Box.createVerticalStrut(4));
+            contentPanel.revalidate();
+
+            SwingUtilities.invokeLater(() -> {
+                Rectangle bounds = item.getBounds();
+                scrollRectToVisible(bounds);
+            });
+        }
+
+        void clear() {
+            events.clear();
+            contentPanel.removeAll();
+            contentPanel.revalidate();
+            contentPanel.repaint();
+        }
+    }
+
+    class EventItem extends JPanel {
+        EventItem(String message, EventType type) {
+            setLayout(new BorderLayout());
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+            Color textColor;
+            String prefix;
+            switch (type) {
+                case SUCCESS: textColor = SUCCESS; prefix = "✓ "; break;
+                case WARNING: textColor = ACCENT_GOLD; prefix = "⚠ "; break;
+                case DANGER: textColor = DANGER; prefix = "✗ "; break;
+                case SYSTEM: textColor = TEXT_SECONDARY; prefix = "• "; break;
+                default: textColor = TEXT_PRIMARY; prefix = "→ "; break;
+            }
+
+            JLabel label = new JLabel(prefix + message);
+            label.setFont(new Font("JetBrains Mono", Font.PLAIN, 12));
+            label.setForeground(textColor);
+            add(label, BorderLayout.WEST);
+        }
+    }
 
     static class BoardPanel extends JPanel {
         enum Mode { SETUP, MY_FIELD, ENEMY_FIELD }
@@ -692,6 +1218,7 @@ public class BattleshipClientGUI extends JFrame {
 
         private int hRow = -1, hCol = -1, hSize = 0;
         private boolean hHoriz = true, hValid = false;
+        private final List<CellAnimation> animations = new ArrayList<>();
 
         BoardPanel(int size, int cellSize, Mode mode) {
             this.bSize = size;
@@ -699,10 +1226,38 @@ public class BattleshipClientGUI extends JFrame {
             this.mode = mode;
             this.cells = new int[size][size];
             setPreferredSize(new Dimension(size * cellSize + 1, size * cellSize + 1));
-            setBackground(new Color(0, 90, 160));
+            setOpaque(false);
+
+            javax.swing.Timer animTimer = new javax.swing.Timer(16, e -> {
+                boolean needsRepaint = false;
+                for (CellAnimation anim : animations) {
+                    anim.progress += 0.05f;
+                    if (anim.progress >= 1f) {
+                        anim.finished = true;
+                    } else {
+                        needsRepaint = true;
+                    }
+                }
+                animations.removeIf(a -> a.finished);
+                if (needsRepaint || !animations.isEmpty()) {
+                    repaint();
+                }
+            });
+            animTimer.start();
         }
 
         void setCells(int[][] c) {
+            for (int i = 0; i < bSize; i++) {
+                for (int j = 0; j < bSize; j++) {
+                    if (cells[i][j] != c[i][j]) {
+                        if (c[i][j] == 2) {
+                            animations.add(new CellAnimation(i, j, AnimationType.EXPLOSION));
+                        } else if (c[i][j] == 3) {
+                            animations.add(new CellAnimation(i, j, AnimationType.SPLASH));
+                        }
+                    }
+                }
+            }
             this.cells = c;
             repaint();
         }
@@ -725,8 +1280,9 @@ public class BattleshipClientGUI extends JFrame {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g;
+            Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
             for (int i = 0; i < bSize; i++) {
                 for (int j = 0; j < bSize; j++) {
@@ -734,79 +1290,312 @@ public class BattleshipClientGUI extends JFrame {
                     int y = i * cSize;
                     int st = cells[i][j];
 
-                    // Background
-                    if (st == 1 && mode != Mode.ENEMY_FIELD) {
-                        g2.setColor(new Color(110, 110, 110)); // ship
-                    } else if (st == 2) {
-                        g2.setColor(new Color(210, 60, 60)); // hit
-                    } else if (st == 3) {
-                        g2.setColor(new Color(180, 200, 230)); // miss
-                    } else {
-                        g2.setColor(new Color(30, 120, 200)); // water
-                    }
-                    g2.fillRect(x + 1, y + 1, cSize - 1, cSize - 1);
-
-                    // Grid
-                    g2.setColor(new Color(0, 40, 80));
-                    g2.drawRect(x, y, cSize, cSize);
-
-                    // Markers
-                    if (st == 2) {
-                        g2.setColor(Color.WHITE);
-                        g2.setStroke(new BasicStroke(2.5f));
-                        int pad = 6;
-                        g2.drawLine(x + pad, y + pad, x + cSize - pad, y + cSize - pad);
-                        g2.drawLine(x + cSize - pad, y + pad, x + pad, y + cSize - pad);
-                    } else if (st == 3) {
-                        g2.setColor(Color.WHITE);
-                        int r = 4;
-                        g2.fillOval(x + cSize/2 - r, y + cSize/2 - r, r*2, r*2);
-                    }
+                    paintCell(g2, x, y, st, i, j);
                 }
             }
 
-            // Setup highlight
+            for (CellAnimation anim : animations) {
+                paintAnimation(g2, anim);
+            }
+
             if (mode == Mode.SETUP && hSize > 0 && hRow >= 0 && hCol >= 0) {
-                g2.setColor(hValid ? new Color(0, 255, 0, 120) : new Color(255, 0, 0, 120));
+                Color highlightColor = hValid 
+                    ? new Color(42, 157, 143, 120) 
+                    : new Color(239, 68, 68, 120);
                 for (int k = 0; k < hSize; k++) {
                     int r = hRow + (hHoriz ? 0 : k);
                     int c = hCol + (hHoriz ? k : 0);
                     if (r >= 0 && r < bSize && c >= 0 && c < bSize) {
-                        g2.fillRect(c * cSize + 1, r * cSize + 1, cSize - 1, cSize - 1);
+                        g2.setColor(highlightColor);
+                        g2.fillRoundRect(c * cSize + 2, r * cSize + 2, cSize - 3, cSize - 3, 6, 6);
                     }
                 }
             }
 
-            // Coordinates
-            g2.setColor(Color.BLACK);
-            g2.setFont(new Font("Arial", Font.BOLD, 11));
+            g2.setColor(TEXT_SECONDARY);
+            g2.setFont(new Font("JetBrains Mono", Font.BOLD, 11));
             for (int i = 0; i < bSize; i++) {
-                g2.drawString(String.valueOf(i), 3, i * cSize + cSize/2 + 4);
-                g2.drawString(String.valueOf(i), i * cSize + cSize/2 - 3, bSize * cSize + 14);
+                g2.drawString(String.valueOf(i), 4, i * cSize + cSize/2 + 5);
+                g2.drawString(String.valueOf(i), i * cSize + cSize/2 - 4, bSize * cSize + 16);
+            }
+
+            g2.dispose();
+        }
+
+        private void paintCell(Graphics2D g2, int x, int y, int st, int row, int col) {
+            int pad = 1;
+            int w = cSize - pad * 2;
+            int h = cSize - pad * 2;
+
+            GradientPaint waterGrad = new GradientPaint(
+                x, y, WATER_MID,
+                x, y + h, WATER_DEEP
+            );
+
+            switch (st) {
+                case 1: // Ship
+                    if (mode != Mode.ENEMY_FIELD) {
+                        GradientPaint shipGrad = new GradientPaint(
+                            x, y, SHIP_HIGHLIGHT,
+                            x, y + h, SHIP_BASE
+                        );
+                        g2.setPaint(shipGrad);
+                        g2.fillRoundRect(x + pad, y + pad, w, h, 6, 6);
+                        g2.setColor(new Color(70, 80, 100));
+                        g2.setStroke(new BasicStroke(1f));
+                        g2.drawRoundRect(x + pad, y + pad, w, h, 6, 6);
+                        g2.drawLine(x + pad + 4, y + pad + h/2, x + pad + w - 4, y + pad + h/2);
+                    } else {
+                        g2.setPaint(waterGrad);
+                        g2.fillRect(x + pad, y + pad, w, h);
+                    }
+                    break;
+
+                case 2: // Hit
+                    GradientPaint hitGrad = new GradientPaint(
+                        x, y, HIT_RED,
+                        x, y + h, new Color(180, 30, 50)
+                    );
+                    g2.setPaint(hitGrad);
+                    g2.fillRoundRect(x + pad, y + pad, w, h, 6, 6);
+
+                    g2.setColor(HIT_ORANGE);
+                    g2.setStroke(new BasicStroke(2.5f));
+                    int cx = x + cSize/2;
+                    int cy = y + cSize/2;
+                    int r1 = cSize/3;
+                    int r2 = cSize/5;
+                    for (int a = 0; a < 8; a++) {
+                        double angle = Math.PI * a / 4;
+                        int x1 = cx + (int)(r2 * Math.cos(angle));
+                        int y1 = cy + (int)(r2 * Math.sin(angle));
+                        int x2 = cx + (int)(r1 * Math.cos(angle));
+                        int y2 = cy + (int)(r1 * Math.sin(angle));
+                        g2.drawLine(x1, y1, x2, y2);
+                    }
+                    g2.setColor(new Color(255, 200, 100, 180));
+                    g2.fillOval(cx - 4, cy - 4, 8, 8);
+                    break;
+
+                case 3: // Miss
+                    g2.setPaint(waterGrad);
+                    g2.fillRect(x + pad, y + pad, w, h);
+
+                    g2.setColor(MISS_BLUE);
+                    g2.setStroke(new BasicStroke(2f));
+                    int rippleR = cSize/4;
+                    g2.drawOval(x + cSize/2 - rippleR, y + cSize/2 - rippleR, rippleR*2, rippleR*2);
+                    g2.setColor(MISS_LIGHT);
+                    g2.fillOval(x + cSize/2 - 3, y + cSize/2 - 3, 6, 6);
+                    break;
+
+                default: // Water
+                    g2.setPaint(waterGrad);
+                    g2.fillRect(x + pad, y + pad, w, h);
+
+                    if ((row * 7 + col * 13) % 23 == 0) {
+                        g2.setColor(new Color(100, 160, 200, 40));
+                        int br = 2 + ((row + col) % 3);
+                        g2.fillOval(x + cSize/2 - br, y + cSize/2 - br, br*2, br*2);
+                    }
+                    break;
+            }
+
+            g2.setColor(new Color(60, 100, 130, 80));
+            g2.setStroke(new BasicStroke(1f));
+            g2.drawRect(x, y, cSize, cSize);
+        }
+
+        private void paintAnimation(Graphics2D g2, CellAnimation anim) {
+            int x = anim.col * cSize;
+            int y = anim.row * cSize;
+            int cx = x + cSize/2;
+            int cy = y + cSize/2;
+
+            float alpha = 1f - anim.progress;
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+
+            if (anim.type == AnimationType.EXPLOSION) {
+                int maxR = cSize;
+                int r = (int)(anim.progress * maxR);
+                g2.setColor(new Color(255, 200, 50, (int)(200 * alpha)));
+                g2.setStroke(new BasicStroke(3f * alpha));
+                g2.drawOval(cx - r, cy - r, r*2, r*2);
+
+                int r2 = (int)(anim.progress * maxR * 0.6f);
+                g2.setColor(new Color(255, 100, 50, (int)(150 * alpha)));
+                g2.drawOval(cx - r2, cy - r2, r2*2, r2*2);
+
+                g2.setColor(new Color(255, 255, 200, (int)(255 * alpha)));
+                Random rand = new Random(anim.row * 31 + anim.col * 17);
+                for (int p = 0; p < 6; p++) {
+                    double angle = rand.nextDouble() * Math.PI * 2;
+                    int dist = (int)(anim.progress * cSize * 0.8);
+                    int px = cx + (int)(dist * Math.cos(angle));
+                    int py = cy + (int)(dist * Math.sin(angle));
+                    int ps = (int)(4 * alpha);
+                    g2.fillOval(px - ps/2, py - ps/2, ps, ps);
+                }
+            } else if (anim.type == AnimationType.SPLASH) {
+                int maxR = cSize;
+                int r = (int)(anim.progress * maxR);
+                g2.setColor(new Color(168, 218, 220, (int)(150 * alpha)));
+                g2.setStroke(new BasicStroke(2f * alpha));
+                g2.drawOval(cx - r, cy - r, r*2, r*2);
+
+                int r2 = (int)(anim.progress * maxR * 0.5f);
+                g2.setColor(new Color(200, 235, 240, (int)(100 * alpha)));
+                g2.drawOval(cx - r2, cy - r2, r2*2, r2*2);
+            }
+
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
+        }
+
+        enum AnimationType { EXPLOSION, SPLASH }
+
+        class CellAnimation {
+            int row, col;
+            AnimationType type;
+            float progress = 0;
+            boolean finished = false;
+
+            CellAnimation(int row, int col, AnimationType type) {
+                this.row = row; this.col = col; this.type = type;
             }
         }
     }
 
+    class GradientButton extends JButton {
+        private final Color color1, color2;
+        private boolean hovered = false;
+        private boolean pressed = false;
+
+        GradientButton(String text, Color color1, Color color2) {
+            super(text);
+            this.color1 = color1;
+            this.color2 = color2;
+            setContentAreaFilled(false);
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setForeground(Color.WHITE);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent e) { hovered = true; repaint(); }
+                @Override
+                public void mouseExited(MouseEvent e) { hovered = false; pressed = false; repaint(); }
+                @Override
+                public void mousePressed(MouseEvent e) { pressed = true; repaint(); }
+                @Override
+                public void mouseReleased(MouseEvent e) { pressed = false; repaint(); }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int w = getWidth();
+            int h = getHeight();
+
+            Color c1 = hovered ? color1.brighter() : color1;
+            Color c2 = hovered ? color2.brighter() : color2;
+            if (pressed) {
+                c1 = c1.darker();
+                c2 = c2.darker();
+            }
+
+            GradientPaint gp = new GradientPaint(0, 0, c1, 0, h, c2);
+            g2.setPaint(gp);
+            g2.fillRoundRect(0, 0, w - 1, h - 1, 10, 10);
+
+            g2.setColor(new Color(255, 255, 255, 30));
+            g2.fillRoundRect(0, 0, w - 1, h / 2, 10, 10);
+
+            g2.setColor(new Color(255, 255, 255, 40));
+            g2.setStroke(new BasicStroke(1f));
+            g2.drawRoundRect(0, 0, w - 1, h - 1, 10, 10);
+
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    class RoundedTextField extends JTextField {
+        RoundedTextField(String text, int columns) {
+            super(text, columns);
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+            setBackground(BG_PANEL);
+            setForeground(TEXT_PRIMARY);
+            setCaretColor(TEXT_PRIMARY);
+            setFont(new Font("Segoe UI", Font.PLAIN, 14));
+
+            addFocusListener(new FocusAdapter() {
+                @Override
+                public void focusGained(FocusEvent e) { repaint(); }
+                @Override
+                public void focusLost(FocusEvent e) { repaint(); }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            g2.setColor(getBackground());
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+
+            boolean focused = hasFocus();
+            g2.setColor(focused ? ACCENT_GOLD : BORDER_COLOR);
+            g2.setStroke(new BasicStroke(focused ? 2f : 1.5f));
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
+
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    class RoundedBorder extends AbstractBorder {
+        private final int radius;
+        private final Color color;
+        private final float thickness;
+
+        RoundedBorder(int radius, Color color, float thickness) {
+            this.radius = radius;
+            this.color = color;
+            this.thickness = thickness;
+        }
+
+        @Override
+        public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.setStroke(new BasicStroke(thickness));
+            g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius);
+            g2.dispose();
+        }
+
+        @Override
+        public Insets getBorderInsets(Component c) {
+            return new Insets(radius/2, radius/2, radius/2, radius/2);
+        }
+    }
+
     public static void main(String[] args) {
-        // --- Linux Wayland / X11 compatibility ---
         String os = System.getProperty("os.name").toLowerCase();
         boolean isLinux = os.contains("linux");
 
         if (isLinux) {
-            // Force X11 backend for Java Swing (works via XWayland on Wayland)
             System.setProperty("java.awt.headless", "false");
             System.setProperty("awt.toolkit", "sun.awt.X11.XToolkit");
             System.setProperty("sun.java2d.uiScale", "1");
             System.setProperty("awt.useSystemAAFontSettings", "on");
             System.setProperty("swing.aatext", "true");
-
-            // Ensure DISPLAY is set for XWayland
-            String display = System.getenv("DISPLAY");
-            if (display == null || display.isEmpty()) {
-                System.err.println("WARNING: DISPLAY not set. Trying :0 ...");
-            }
-
-            // Workaround for some KDE/Wayland compositors
             String wmNonreparent = System.getenv("_JAVA_AWT_WM_NONREPARENTING");
             if (wmNonreparent == null) {
                 System.setProperty("_JAVA_AWT_WM_NONREPARENTING", "1");
@@ -817,15 +1606,15 @@ public class BattleshipClientGUI extends JFrame {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {}
 
-        // Check headless after setting properties
         if (GraphicsEnvironment.isHeadless()) {
             System.err.println("ERROR: No graphical display available.");
-            System.err.println("If on Wayland, ensure XWayland is running: pgrep Xwayland");
-            System.err.println("If remote, use: ssh -X user@host");
             System.exit(1);
         }
 
-        SwingUtilities.invokeLater(() -> new BattleshipClientGUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            BattleshipClientGUI frame = new BattleshipClientGUI();
+            frame.setVisible(true);
+        });
     }
 }
 
