@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Server {
     public static final int BOARD_SIZE = 10;
     private static final int PORT = 12345;
+    private static final int[] SHIP_SIZES = {4, 3, 3, 2, 2, 2, 1, 1, 1, 1};
 
     private final Map<Integer, ClientHandler> clients = new ConcurrentHashMap<>();
     private final AtomicInteger nextId = new AtomicInteger(1);
@@ -32,7 +33,7 @@ public class Server {
         }
     }
 
-    public void removeClient(int id) {
+    public synchronized void removeClient(int id) {
         clients.remove(id);
     }
 
@@ -42,6 +43,15 @@ public class Server {
 
     public ClientHandler getClient(int id) {
         return clients.get(id);
+    }
+
+    public synchronized boolean startGame(ClientHandler a, ClientHandler b) {
+        if (a.currentGame != null || b.currentGame != null) return false;
+        if (!a.ready || !b.ready) return false;
+        Game game = new Game(a, b);
+        a.currentGame = game;
+        b.currentGame = game;
+        return true;
     }
 
     // ---- внутренняя игра ----
@@ -79,16 +89,10 @@ public class Server {
             if (!hit) {
                 result = "MISS";
             } else {
-                // Check if the ship at (x,y) is completely destroyed
                 boolean sunk = isShipSunk(opp.myField, mover.opponentHits, x, y);
-                if (sunk) {
-                    result = "SUNK";
-                } else {
-                    result = "HIT";
-                }
+                result = sunk ? "SUNK" : "HIT";
             }
 
-            // Check for win condition
             boolean win = true;
             for (int i = 0; i < BOARD_SIZE && win; i++)
                 for (int j = 0; j < BOARD_SIZE && win; j++)
@@ -101,39 +105,28 @@ public class Server {
             opp.out.flush();
 
             if (win) {
-                endGame(mover, false);
+                endGame(opp, false);
                 return;
             }
 
             if (hit) {
                 mover.out.writeUTF("CMD_AGAIN");
                 mover.out.flush();
-                notifyTurn();
             } else {
                 currentTurn = opp.getId();
                 notifyTurn();
             }
         }
 
-        /**
-         * Checks if the ship containing cell (x,y) is completely sunk.
-         * Uses flood-fill to find all connected ship cells and checks if all are hit.
-         */
         private boolean isShipSunk(boolean[][] field, boolean[][] hits, int x, int y) {
-            // Find all cells belonging to this ship using BFS/DFS
             boolean[][] visited = new boolean[BOARD_SIZE][BOARD_SIZE];
             List<int[]> shipCells = new ArrayList<>();
-
-            // DFS to find connected ship cells
             findShipCells(field, visited, x, y, shipCells);
 
-            // Check if all ship cells are hit
             for (int[] cell : shipCells) {
-                if (!hits[cell[0]][cell[1]]) {
-                    return false; // Ship still has unhit cells
-                }
+                if (!hits[cell[0]][cell[1]]) return false;
             }
-            return true; // All cells hit = ship sunk
+            return true;
         }
 
         private void findShipCells(boolean[][] field, boolean[][] visited, int x, int y, List<int[]> shipCells) {
@@ -144,7 +137,6 @@ public class Server {
             visited[x][y] = true;
             shipCells.add(new int[]{x, y});
 
-            // Check 4-connected neighbors (ships are straight lines, but check all 4 for safety)
             findShipCells(field, visited, x - 1, y, shipCells);
             findShipCells(field, visited, x + 1, y, shipCells);
             findShipCells(field, visited, x, y - 1, shipCells);
@@ -192,7 +184,7 @@ public class Server {
         @Override
         public void run() {
             try {
-                // ---- ЦИКЛ ПРИНЯТИЯ ПОЛЯ С ПОВТОРАМИ ----
+                // ---- Приём поля ----
                 while (true) {
                     out.writeUTF("CMD_REQUIRE_FIELD");
                     out.flush();
@@ -225,7 +217,7 @@ public class Server {
                     break;
                 }
 
-                // ---- ОСНОВНОЙ ЦИКЛ КОМАНД (игра) ----
+                // ---- Основной цикл команд ----
                 while (true) {
                     String cmd = in.readUTF();
                     System.out.println("[SERVER] cmd from " + id + ": " + cmd);
@@ -266,9 +258,88 @@ public class Server {
             for (int i = 0; i < BOARD_SIZE; i++)
                 for (int j = 0; j < BOARD_SIZE; j++)
                     field[i][j] = (data.charAt(i * BOARD_SIZE + j) == '1');
+
+            if (!validateField(field)) return false;
+
             myField = field;
             opponentHits = new boolean[BOARD_SIZE][BOARD_SIZE];
             return true;
+        }
+
+        // ---- Валидация поля ----
+        private boolean validateField(boolean[][] field) {
+            // Подсчёт кораблей по размерам
+            int[] counts = new int[5];
+            boolean[][] visited = new boolean[BOARD_SIZE][BOARD_SIZE];
+
+            for (int i = 0; i < BOARD_SIZE; i++) {
+                for (int j = 0; j < BOARD_SIZE; j++) {
+                    if (field[i][j] && !visited[i][j]) {
+                        List<int[]> shipCells = new ArrayList<>();
+                        findShipCells(field, visited, i, j, shipCells);
+                        int size = shipCells.size();
+                        if (size == 0 || size > 4) return false;
+                        counts[size]++;
+                        // Проверка прямолинейности
+                        if (!isShipStraight(shipCells)) return false;
+                        // Проверка отсутствия касаний с другими кораблями
+                        for (int[] cell : shipCells) {
+                            int x = cell[0], y = cell[1];
+                            for (int dx = -1; dx <= 1; dx++) {
+                                for (int dy = -1; dy <= 1; dy++) {
+                                    if (dx == 0 && dy == 0) continue;
+                                    int nx = x + dx, ny = y + dy;
+                                    if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
+                                        if (field[nx][ny]) {
+                                            boolean same = false;
+                                            for (int[] sc : shipCells) {
+                                                if (sc[0] == nx && sc[1] == ny) { same = true; break; }
+                                            }
+                                            if (!same) return false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            int[] expected = new int[5];
+            for (int s : SHIP_SIZES) expected[s]++;
+
+            for (int s = 1; s <= 4; s++) {
+                if (counts[s] != expected[s]) return false;
+            }
+            return true;
+        }
+
+        private boolean isShipStraight(List<int[]> cells) {
+            if (cells.isEmpty()) return false;
+            int firstX = cells.get(0)[0];
+            int firstY = cells.get(0)[1];
+            boolean sameRow = true, sameCol = true;
+            for (int[] c : cells) {
+                if (c[0] != firstX) sameRow = false;
+                if (c[1] != firstY) sameCol = false;
+                if (!sameRow && !sameCol) return false;
+            }
+            return true;
+        }
+
+        // Используется также в валидации
+        private void findShipCells(boolean[][] field, boolean[][] visited, int x, int y, List<int[]> shipCells) {
+            if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return;
+            if (visited[x][y]) return;
+            if (!field[x][y]) return;
+
+            visited[x][y] = true;
+            shipCells.add(new int[]{x, y});
+
+            findShipCells(field, visited, x - 1, y, shipCells);
+            findShipCells(field, visited, x + 1, y, shipCells);
+            findShipCells(field, visited, x, y - 1, shipCells);
+            findShipCells(field, visited, x, y + 1, shipCells);
         }
 
         private void sendPlayerList() throws IOException {
@@ -294,12 +365,18 @@ public class Server {
                 out.flush();
                 return;
             }
-            currentGame = new Game(this, opp);
-            opp.currentGame = currentGame;
+
+            if (!server.startGame(this, opp)) {
+                out.writeUTF("CMD_ERROR:Cannot start game");
+                out.flush();
+                return;
+            }
+
             out.writeUTF("CMD_GAME_START:You are playing vs " + opp.id);
             opp.out.writeUTF("CMD_GAME_START:Game started vs " + id);
             out.flush();
             opp.out.flush();
+
             currentGame.notifyTurn();
         }
 
@@ -338,4 +415,3 @@ public class Server {
         }
     }
 }
-

@@ -45,7 +45,6 @@ public class BattleshipClientGUI extends JFrame {
     private final SetupPanel setupPanel;
     private final LobbyPanel lobbyPanel;
     private final BattlePanel battlePanel;
-    private final ToastOverlay toastOverlay;
 
     public BattleshipClientGUI() {
         super("Морской бой");
@@ -71,10 +70,6 @@ public class BattleshipClientGUI extends JFrame {
         setLayout(new OverlayLayout(getContentPane()));
         getContentPane().add(mainPanel);
 
-        toastOverlay = new ToastOverlay();
-        toastOverlay.setOpaque(false);
-        getContentPane().add(toastOverlay);
-
         pack();
         setLocationRelativeTo(null);
         showPanel("CONNECT");
@@ -84,10 +79,6 @@ public class BattleshipClientGUI extends JFrame {
         cardLayout.show(mainPanel, name);
         mainPanel.revalidate();
         mainPanel.repaint();
-    }
-
-    public void showToast(String message, ToastType type) {
-        toastOverlay.showToast(message, type);
     }
 
     private void connect(String host, int port) {
@@ -108,8 +99,7 @@ public class BattleshipClientGUI extends JFrame {
 
             } catch (IOException e) {
                 SwingUtilities.invokeLater(() -> {
-                    showToast("Не удалось подключиться: " + e.getMessage(), ToastType.ERROR);
-                    connectionPanel.setStatus("Не подключено", false);
+                    connectionPanel.setStatus("Не удалось подключиться: " + e.getMessage(), false);
                     connectionPanel.setConnectEnabled(true);
                 });
             }
@@ -133,7 +123,6 @@ public class BattleshipClientGUI extends JFrame {
         } catch (IOException e) {
             if (connected) {
                 SwingUtilities.invokeLater(() -> {
-                    showToast("Соединение с сервером потеряно", ToastType.WARNING);
                     disconnect();
                     showPanel("CONNECT");
                     connectionPanel.setConnectEnabled(true);
@@ -152,7 +141,8 @@ public class BattleshipClientGUI extends JFrame {
             lobbyPanel.refreshPlayers();
         } else if (msg.startsWith("CMD_ERROR:")) {
             String err = msg.substring(10);
-            showToast(err, ToastType.ERROR);
+            // Сообщение об ошибке выводим только в статус (если есть) или игнорируем
+            // Можно добавить в лог, но лог доступен только в бою
         } else if (msg.startsWith("PLAYERS:")) {
             String list = msg.substring(8);
             lobbyPanel.updatePlayers(list);
@@ -185,9 +175,7 @@ public class BattleshipClientGUI extends JFrame {
         } else if (msg.startsWith("CMD_GAME_OVER:")) {
             String result = msg.substring(14);
             boolean win = result.equals("WIN");
-            showToast(
-                win ? "ПОБЕДА! Вы уничтожили все корабли противника!" : "ПОРАЖЕНИЕ! Ваш флот уничтожен.",
-                win ? ToastType.SUCCESS : ToastType.ERROR);
+            // Только логируем в лог, тост убран
             battlePanel.endGame();
             showPanel("LOBBY");
             lobbyPanel.refreshPlayers();
@@ -202,99 +190,7 @@ public class BattleshipClientGUI extends JFrame {
             out.writeUTF(cmd);
             out.flush();
         } catch (IOException e) {
-            showToast("Ошибка отправки: " + e.getMessage(), ToastType.ERROR);
-        }
-    }
-
-    enum ToastType { SUCCESS, ERROR, WARNING, INFO }
-
-    class ToastOverlay extends JComponent {
-        private final List<Toast> toasts = new ArrayList<>();
-
-        void showToast(String message, ToastType type) {
-            Toast toast = new Toast(message, type);
-            toasts.add(toast);
-            repaint();
-
-            javax.swing.Timer fadeTimer = new javax.swing.Timer(16, e -> {
-                toast.progress += 0.016f;
-                if (toast.progress < 0.2f) {
-                    toast.alpha = toast.progress / 0.2f;
-                } else if (toast.progress > 2.5f) {
-                    toast.alpha = Math.max(0, 1f - (toast.progress - 2.5f) / 0.3f);
-                    toast.offsetY -= 2;
-                }
-                if (toast.progress >= 2.8f) {
-                    toasts.remove(toast);
-                    ((javax.swing.Timer)e.getSource()).stop();
-                }
-                repaint();
-            });
-            fadeTimer.start();
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            int y = 20;
-            for (Toast toast : toasts) {
-                paintToast(g2, toast, y);
-                y += 55;
-            }
-            g2.dispose();
-        }
-
-        private void paintToast(Graphics2D g2, Toast toast, int y) {
-            Color bg, border;
-            switch (toast.type) {
-                case SUCCESS: bg = new Color(34, 197, 94, (int)(180 * toast.alpha)); 
-                              border = new Color(74, 222, 128, (int)(255 * toast.alpha)); break;
-                case ERROR: bg = new Color(239, 68, 68, (int)(180 * toast.alpha)); 
-                            border = new Color(248, 113, 113, (int)(255 * toast.alpha)); break;
-                case WARNING: bg = new Color(245, 158, 11, (int)(180 * toast.alpha)); 
-                              border = new Color(251, 191, 36, (int)(255 * toast.alpha)); break;
-                default: bg = new Color(59, 130, 246, (int)(180 * toast.alpha)); 
-                         border = new Color(96, 165, 250, (int)(255 * toast.alpha)); break;
-            }
-
-            FontMetrics fm = g2.getFontMetrics(new Font("Segoe UI", Font.BOLD, 14));
-            int textWidth = fm.stringWidth(toast.message);
-            int width = textWidth + 40;
-            int height = 42;
-            int x = (getWidth() - width) / 2;
-            int drawY = y + toast.offsetY;
-
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, toast.alpha));
-
-            g2.setColor(new Color(0, 0, 0, 60));
-            g2.fillRoundRect(x + 2, drawY + 2, width, height, 12, 12);
-
-            g2.setColor(bg);
-            g2.fillRoundRect(x, drawY, width, height, 12, 12);
-
-            g2.setColor(border);
-            g2.setStroke(new BasicStroke(1.5f));
-            g2.drawRoundRect(x, drawY, width, height, 12, 12);
-
-            g2.setColor(new Color(255, 255, 255, (int)(255 * toast.alpha)));
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
-            g2.drawString(toast.message, x + 20, drawY + 28);
-        }
-    }
-
-    class Toast {
-        String message;
-        ToastType type;
-        float alpha = 0;
-        float progress = 0;
-        int offsetY = 0;
-
-        Toast(String message, ToastType type) {
-            this.message = message;
-            this.type = type;
+            // Ошибка отправки, но тост не показываем
         }
     }
 
@@ -493,7 +389,9 @@ public class BattleshipClientGUI extends JFrame {
                         checkReady();
                         board.clearHighlight();
                     } else {
-                        showToast("Нельзя разместить корабль здесь", ToastType.WARNING);
+                        // Сообщение в лог не доступно, просто игнорируем или меняем текст info
+                        lblInfo.setText("Нельзя разместить корабль здесь");
+                        lblInfo.setForeground(DANGER);
                     }
                 }
             });
@@ -653,7 +551,6 @@ public class BattleshipClientGUI extends JFrame {
             if (remainingShips.isEmpty()) {
                 lblInfo.setText("Все корабли на месте! Нажмите «Готов»");
                 lblInfo.setForeground(SUCCESS);
-                showToast("Все корабли расставлены!", ToastType.SUCCESS);
             }
         }
 
@@ -669,7 +566,6 @@ public class BattleshipClientGUI extends JFrame {
             btnReady.setEnabled(true);
             lblInfo.setText("Поле сгенерировано автоматически");
             lblInfo.setForeground(ACCENT_TEAL);
-            showToast("Корабли расставлены автоматически", ToastType.INFO);
         }
 
         private void submitField() {
@@ -740,6 +636,7 @@ public class BattleshipClientGUI extends JFrame {
         private final JList<PlayerItem> playerList;
         private final GradientButton btnRefresh;
         private final GradientButton btnChallenge;
+        private final JLabel lblStatus;
 
         LobbyPanel() {
             setOpaque(false);
@@ -779,9 +676,17 @@ public class BattleshipClientGUI extends JFrame {
             listWrapper.add(sp, BorderLayout.CENTER);
             add(listWrapper, BorderLayout.CENTER);
 
-            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+            JPanel bottom = new JPanel(new BorderLayout());
             bottom.setOpaque(false);
-            bottom.setBorder(new EmptyBorder(10, 0, 0, 0));
+
+            lblStatus = new JLabel(" ", SwingConstants.CENTER);
+            lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            lblStatus.setForeground(TEXT_SECONDARY);
+            bottom.add(lblStatus, BorderLayout.NORTH);
+
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 0));
+            btnPanel.setOpaque(false);
+            btnPanel.setBorder(new EmptyBorder(10, 0, 0, 0));
 
             btnRefresh = new GradientButton("↻ Обновить", new Color(59, 130, 246), new Color(37, 99, 235));
             btnChallenge = new GradientButton("⚔ Вызвать на бой", ACCENT_GOLD, ACCENT_GOLD_HOVER);
@@ -791,29 +696,37 @@ public class BattleshipClientGUI extends JFrame {
                 btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
             }
 
-            bottom.add(btnRefresh);
-            bottom.add(btnChallenge);
+            btnPanel.add(btnRefresh);
+            btnPanel.add(btnChallenge);
+            bottom.add(btnPanel, BorderLayout.SOUTH);
             add(bottom, BorderLayout.SOUTH);
 
             btnRefresh.addActionListener(e -> refreshPlayers());
             btnChallenge.addActionListener(e -> {
                 PlayerItem sel = playerList.getSelectedValue();
                 if (sel == null) {
-                    showToast("Выберите противника из списка", ToastType.WARNING);
+                    lblStatus.setText("Выберите противника из списка");
+                    lblStatus.setForeground(DANGER);
                     return;
                 }
                 send("SELECT_PLAYER:" + sel.id);
+                lblStatus.setText("Вызов отправлен...");
+                lblStatus.setForeground(ACCENT_GOLD);
             });
         }
 
         void refreshPlayers() {
             listModel.clear();
             send("GET_PLAYERS");
+            lblStatus.setText("Список обновлён");
+            lblStatus.setForeground(TEXT_SECONDARY);
         }
 
         void updatePlayers(String data) {
             listModel.clear();
             if (data.isEmpty()) {
+                lblStatus.setText("Нет доступных игроков");
+                lblStatus.setForeground(TEXT_SECONDARY);
                 return;
             }
             for (String idStr : data.split(",")) {
@@ -822,6 +735,8 @@ public class BattleshipClientGUI extends JFrame {
                     listModel.addElement(new PlayerItem(id, "Игрок " + id));
                 } catch (NumberFormatException ignored) {}
             }
+            lblStatus.setText("Доступно игроков: " + listModel.size());
+            lblStatus.setForeground(TEXT_SECONDARY);
         }
     }
 
@@ -987,7 +902,7 @@ public class BattleshipClientGUI extends JFrame {
                     int col = e.getX() / CELL_SIZE;
                     if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return;
                     if (enemyCells[row][col] != 0) {
-                        showToast("Уже стреляли сюда!", ToastType.WARNING);
+                        log.addEvent("Уже стреляли сюда!", EventType.WARNING);
                         return;
                     }
                     send("MOVE:" + row + ":" + col);
@@ -1092,7 +1007,6 @@ public class BattleshipClientGUI extends JFrame {
                     enemyShipsSunk++;
                     lblShipsRemaining.setText("Ваши корабли: " + (10 - myShipsSunk) + "  |  Корабли врага: " + (10 - enemyShipsSunk));
                     log.addEvent("Выстрел (" + x + "," + y + "): КОРАБЛЬ УНИЧТОЖЕН!", EventType.SUCCESS);
-                    showToast("🚢 Корабль противника уничтожен!", ToastType.SUCCESS);
                     break;
                 case "WIN":
                     enemyCells[x][y] = 2;
@@ -1117,7 +1031,6 @@ public class BattleshipClientGUI extends JFrame {
                     myShipsSunk++;
                     lblShipsRemaining.setText("Ваши корабли: " + (10 - myShipsSunk) + "  |  Корабли врага: " + (10 - enemyShipsSunk));
                     log.addEvent("Противник (" + x + "," + y + "): Ваш корабль УНИЧТОЖЕН!", EventType.DANGER);
-                    showToast("💥 Ваш корабль уничтожен!", ToastType.ERROR);
                     break;
                 case "WIN":
                     myCells[x][y] = 2;
@@ -1219,6 +1132,7 @@ public class BattleshipClientGUI extends JFrame {
         private int hRow = -1, hCol = -1, hSize = 0;
         private boolean hHoriz = true, hValid = false;
         private final List<CellAnimation> animations = new ArrayList<>();
+        private javax.swing.Timer animTimer;
 
         BoardPanel(int size, int cellSize, Mode mode) {
             this.bSize = size;
@@ -1228,7 +1142,7 @@ public class BattleshipClientGUI extends JFrame {
             setPreferredSize(new Dimension(size * cellSize + 1, size * cellSize + 1));
             setOpaque(false);
 
-            javax.swing.Timer animTimer = new javax.swing.Timer(16, e -> {
+            animTimer = new javax.swing.Timer(16, e -> {
                 boolean needsRepaint = false;
                 for (CellAnimation anim : animations) {
                     anim.progress += 0.05f;
@@ -1241,9 +1155,10 @@ public class BattleshipClientGUI extends JFrame {
                 animations.removeIf(a -> a.finished);
                 if (needsRepaint || !animations.isEmpty()) {
                     repaint();
+                } else {
+                    animTimer.stop();
                 }
             });
-            animTimer.start();
         }
 
         void setCells(int[][] c) {
@@ -1260,6 +1175,9 @@ public class BattleshipClientGUI extends JFrame {
             }
             this.cells = c;
             repaint();
+            if (!animations.isEmpty() && !animTimer.isRunning()) {
+                animTimer.start();
+            }
         }
 
         void setCell(int r, int col, int v) {
@@ -1617,4 +1535,3 @@ public class BattleshipClientGUI extends JFrame {
         });
     }
 }
-
