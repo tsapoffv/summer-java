@@ -44,7 +44,7 @@ public class Server {
         return clients.get(id);
     }
 
-    // ---- внутренняя игра (упрощённая) ----
+    // ---- внутренняя игра ----
     class Game {
         ClientHandler p1, p2;
         int currentTurn;
@@ -74,7 +74,21 @@ public class Server {
             ClientHandler opp = (mover == p1) ? p2 : p1;
             boolean hit = opp.myField[x][y];
             mover.opponentHits[x][y] = true;
-            String result = hit ? "HIT" : "MISS";
+
+            String result;
+            if (!hit) {
+                result = "MISS";
+            } else {
+                // Check if the ship at (x,y) is completely destroyed
+                boolean sunk = isShipSunk(opp.myField, mover.opponentHits, x, y);
+                if (sunk) {
+                    result = "SUNK";
+                } else {
+                    result = "HIT";
+                }
+            }
+
+            // Check for win condition
             boolean win = true;
             for (int i = 0; i < BOARD_SIZE && win; i++)
                 for (int j = 0; j < BOARD_SIZE && win; j++)
@@ -99,6 +113,42 @@ public class Server {
                 currentTurn = opp.getId();
                 notifyTurn();
             }
+        }
+
+        /**
+         * Checks if the ship containing cell (x,y) is completely sunk.
+         * Uses flood-fill to find all connected ship cells and checks if all are hit.
+         */
+        private boolean isShipSunk(boolean[][] field, boolean[][] hits, int x, int y) {
+            // Find all cells belonging to this ship using BFS/DFS
+            boolean[][] visited = new boolean[BOARD_SIZE][BOARD_SIZE];
+            List<int[]> shipCells = new ArrayList<>();
+
+            // DFS to find connected ship cells
+            findShipCells(field, visited, x, y, shipCells);
+
+            // Check if all ship cells are hit
+            for (int[] cell : shipCells) {
+                if (!hits[cell[0]][cell[1]]) {
+                    return false; // Ship still has unhit cells
+                }
+            }
+            return true; // All cells hit = ship sunk
+        }
+
+        private void findShipCells(boolean[][] field, boolean[][] visited, int x, int y, List<int[]> shipCells) {
+            if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return;
+            if (visited[x][y]) return;
+            if (!field[x][y]) return;
+
+            visited[x][y] = true;
+            shipCells.add(new int[]{x, y});
+
+            // Check 4-connected neighbors (ships are straight lines, but check all 4 for safety)
+            findShipCells(field, visited, x - 1, y, shipCells);
+            findShipCells(field, visited, x + 1, y, shipCells);
+            findShipCells(field, visited, x, y - 1, shipCells);
+            findShipCells(field, visited, x, y + 1, shipCells);
         }
 
         void endGame(ClientHandler loser, boolean surrender) throws IOException {
@@ -160,19 +210,19 @@ public class Server {
                     if (!line.startsWith("SET_FIELD:")) {
                         out.writeUTF("CMD_ERROR:Expected SET_FIELD");
                         out.flush();
-                        continue;  // повторяем запрос
+                        continue;
                     }
                     String fieldData = line.substring(10);
                     if (!parseAndSetField(fieldData)) {
                         out.writeUTF("CMD_ERROR:Invalid field layout");
                         out.flush();
-                        continue;  // повторяем запрос
+                        continue;
                     }
                     ready = true;
                     out.writeUTF("CMD_OK:Field accepted");
                     out.flush();
                     System.out.println("[SERVER] CMD_OK -> client " + id);
-                    break;  // поле принято, выходим из цикла
+                    break;
                 }
 
                 // ---- ОСНОВНОЙ ЦИКЛ КОМАНД (игра) ----
@@ -210,7 +260,6 @@ public class Server {
             }
         }
 
-        // Принимаем любое поле (валидация отключена – но можно включить при желании)
         private boolean parseAndSetField(String data) {
             if (data.length() != BOARD_SIZE * BOARD_SIZE) return false;
             boolean[][] field = new boolean[BOARD_SIZE][BOARD_SIZE];
@@ -219,7 +268,7 @@ public class Server {
                     field[i][j] = (data.charAt(i * BOARD_SIZE + j) == '1');
             myField = field;
             opponentHits = new boolean[BOARD_SIZE][BOARD_SIZE];
-            return true;  // всегда принимаем – для стабильности
+            return true;
         }
 
         private void sendPlayerList() throws IOException {
@@ -289,3 +338,4 @@ public class Server {
         }
     }
 }
+

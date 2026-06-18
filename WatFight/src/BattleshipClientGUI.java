@@ -67,7 +67,7 @@ public class BattleshipClientGUI extends JFrame {
                 socket = new Socket(host, port);
                 in = new DataInputStream(socket.getInputStream());
                 out = new DataOutputStream(socket.getOutputStream());
-                socket.setSoTimeout(5000);
+                // УБРАН setSoTimeout — таймаут вызывал разрывы соединения
                 connected = true;
 
                 SwingUtilities.invokeLater(() -> {
@@ -124,7 +124,6 @@ public class BattleshipClientGUI extends JFrame {
             setupPanel.reset();
             showPanel("SETUP");
         } else if (msg.startsWith("CMD_OK")) {
-            try { socket.setSoTimeout(0); } catch (IOException ignored) {}
             showPanel("LOBBY");
             lobbyPanel.refreshPlayers();
         } else if (msg.startsWith("CMD_ERROR:")) {
@@ -500,6 +499,7 @@ public class BattleshipClientGUI extends JFrame {
         private final JLabel lblStatus = new JLabel("Ожидание начала боя...");
         private final JTextArea log = new JTextArea(6, 40);
         private final JButton btnSurrender = new JButton("Сдаться");
+        private final JLabel lblSunkShips = new JLabel(" ");
 
         private boolean inGame = false;
         private boolean myTurn = false;
@@ -510,10 +510,18 @@ public class BattleshipClientGUI extends JFrame {
             setLayout(new BorderLayout(10, 10));
             setBorder(new EmptyBorder(10, 10, 10, 10));
 
-            // Top status
+            // Top status area
+            JPanel topPanel = new JPanel(new BorderLayout());
             lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 16));
             lblStatus.setHorizontalAlignment(SwingConstants.CENTER);
-            add(lblStatus, BorderLayout.NORTH);
+            topPanel.add(lblStatus, BorderLayout.CENTER);
+
+            lblSunkShips.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            lblSunkShips.setHorizontalAlignment(SwingConstants.CENTER);
+            lblSunkShips.setForeground(new Color(180, 0, 0));
+            topPanel.add(lblSunkShips, BorderLayout.SOUTH);
+
+            add(topPanel, BorderLayout.NORTH);
 
             // Center boards
             JPanel boards = new JPanel(new GridLayout(1, 2, 20, 0));
@@ -570,6 +578,7 @@ public class BattleshipClientGUI extends JFrame {
             inGame = true;
             myTurn = false;
             lblStatus.setText("Бой начался! " + info);
+            lblSunkShips.setText(" ");
             log.setText("");
             log("=== Бой начался ===");
             log(info);
@@ -603,6 +612,10 @@ public class BattleshipClientGUI extends JFrame {
             } else if (result.equals("MISS")) {
                 enemyCells[x][y] = 3;
                 log("Выстрел (" + x + "," + y + "): Мимо.");
+            } else if (result.equals("SUNK")) {
+                enemyCells[x][y] = 2;
+                log("Выстрел (" + x + "," + y + "): КОРАБЛЬ УНИЧТОЖЕН!");
+                showSunkNotification("Вы уничтожили корабль противника!", false);
             } else if (result.equals("WIN")) {
                 enemyCells[x][y] = 2;
                 log("Выстрел (" + x + "," + y + "): ПОТОПЛЕН! Победа!");
@@ -617,11 +630,32 @@ public class BattleshipClientGUI extends JFrame {
             } else if (result.equals("MISS")) {
                 myCells[x][y] = 3;
                 log("Противник (" + x + "," + y + "): Мимо.");
+            } else if (result.equals("SUNK")) {
+                myCells[x][y] = 2;
+                log("Противник (" + x + "," + y + "): Ваш корабль УНИЧТОЖЕН!");
+                showSunkNotification("Ваш корабль уничтожен!", true);
             } else if (result.equals("WIN")) {
                 myCells[x][y] = 2;
                 log("Противник (" + x + "," + y + "): Потопил последний корабль.");
             }
             myBoard.setCells(copyCells(myCells));
+        }
+
+        /**
+         * Shows a clear visual notification when a ship is sunk.
+         * @param message the message to display
+         * @param isMyShip true if it's the player's ship that was sunk
+         */
+        private void showSunkNotification(String message, boolean isMyShip) {
+            lblSunkShips.setText(message);
+            lblSunkShips.setForeground(isMyShip ? new Color(200, 0, 0) : new Color(0, 150, 0));
+
+            // Flash effect: clear after 3 seconds
+            javax.swing.Timer timer = new javax.swing.Timer(3000, e -> {
+                lblSunkShips.setText(" ");
+            });
+            timer.setRepeats(false);
+            timer.start();
         }
 
         void showAgain() {
@@ -632,6 +666,7 @@ public class BattleshipClientGUI extends JFrame {
         void endGame() {
             inGame = false;
             myTurn = false;
+            lblSunkShips.setText(" ");
         }
 
         void log(String msg) {
