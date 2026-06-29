@@ -1,3 +1,5 @@
+package com.mmf.group6.sea_battle.client;
+
 import javax.swing.*;
 import javax.swing.border.*;
 import java.awt.*;
@@ -141,8 +143,6 @@ public class BattleshipClientGUI extends JFrame {
             lobbyPanel.refreshPlayers();
         } else if (msg.startsWith("CMD_ERROR:")) {
             String err = msg.substring(10);
-            // Сообщение об ошибке выводим только в статус (если есть) или игнорируем
-            // Можно добавить в лог, но лог доступен только в бою
         } else if (msg.startsWith("PLAYERS:")) {
             String list = msg.substring(8);
             lobbyPanel.updatePlayers(list);
@@ -175,7 +175,6 @@ public class BattleshipClientGUI extends JFrame {
         } else if (msg.startsWith("CMD_GAME_OVER:")) {
             String result = msg.substring(14);
             boolean win = result.equals("WIN");
-            // Только логируем в лог, тост убран
             battlePanel.endGame();
             showPanel("LOBBY");
             lobbyPanel.refreshPlayers();
@@ -190,7 +189,6 @@ public class BattleshipClientGUI extends JFrame {
             out.writeUTF(cmd);
             out.flush();
         } catch (IOException e) {
-            // Ошибка отправки, но тост не показываем
         }
     }
 
@@ -389,7 +387,6 @@ public class BattleshipClientGUI extends JFrame {
                         checkReady();
                         board.clearHighlight();
                     } else {
-                        // Сообщение в лог не доступно, просто игнорируем или меняем текст info
                         lblInfo.setText("Нельзя разместить корабль здесь");
                         lblInfo.setForeground(DANGER);
                     }
@@ -1251,7 +1248,7 @@ public class BattleshipClientGUI extends JFrame {
             );
 
             switch (st) {
-                case 1: // Ship
+                case 1:
                     if (mode != Mode.ENEMY_FIELD) {
                         GradientPaint shipGrad = new GradientPaint(
                             x, y, SHIP_HIGHLIGHT,
@@ -1269,7 +1266,7 @@ public class BattleshipClientGUI extends JFrame {
                     }
                     break;
 
-                case 2: // Hit
+                case 2:
                     GradientPaint hitGrad = new GradientPaint(
                         x, y, HIT_RED,
                         x, y + h, new Color(180, 30, 50)
@@ -1295,7 +1292,7 @@ public class BattleshipClientGUI extends JFrame {
                     g2.fillOval(cx - 4, cy - 4, 8, 8);
                     break;
 
-                case 3: // Miss
+                case 3:
                     g2.setPaint(waterGrad);
                     g2.fillRect(x + pad, y + pad, w, h);
 
@@ -1307,7 +1304,7 @@ public class BattleshipClientGUI extends JFrame {
                     g2.fillOval(x + cSize/2 - 3, y + cSize/2 - 3, 6, 6);
                     break;
 
-                default: // Water
+                default:
                     g2.setPaint(waterGrad);
                     g2.fillRect(x + pad, y + pad, w, h);
 
