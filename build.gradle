@@ -26,3 +26,23 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+bootJar {
+	mainClass = 'com.mmf.group6.sea_battle.SeaBattleApplication'
+}
+
+tasks.register('runServer', JavaExec) {
+	mainClass = 'com.mmf.group6.sea_battle.server.Server'
+	classpath = sourceSets.main.runtimeClasspath
+}
+
+tasks.register('runClient', JavaExec) {
+	mainClass = 'com.mmf.group6.sea_battle.client.Client'
+	classpath = sourceSets.main.runtimeClasspath
+	standardInput = System.in
+}
+
+tasks.register('runGui', JavaExec) {
+	mainClass = 'com.mmf.group6.sea_battle.client.BattleshipClientGUI'
+	classpath = sourceSets.main.runtimeClasspath
+}
