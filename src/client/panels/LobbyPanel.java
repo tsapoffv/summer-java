@@ -146,7 +146,7 @@ public class LobbyPanel extends JPanel {
      * Ячейка списка игроков.
      */
     private static class PlayerCellRenderer extends JPanel implements ListCellRenderer<PlayerItem> {
-        private final JLabel iconLabel = new JLabel("👤");
+        private final JLabel iconLabel = new JLabel("");
         private final JLabel nameLabel = new JLabel();
         private final JLabel idLabel = new JLabel();
         private boolean isSelected;
