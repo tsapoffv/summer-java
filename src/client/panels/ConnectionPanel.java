@@ -34,7 +34,7 @@ public class ConnectionPanel extends JPanel {
         setLayout(new GridBagLayout());
 
         // Заголовок
-        JLabel title = new JLabel("⚓ МОРСКОЙ БОЙ", SwingConstants.CENTER);
+        JLabel title = new JLabel(" МОРСКОЙ БОЙ", SwingConstants.CENTER);
         title.setFont(new Font("Segoe UI", Font.BOLD, 32));
         title.setForeground(Colors.ACCENT_GOLD);
 
@@ -51,7 +51,7 @@ public class ConnectionPanel extends JPanel {
         lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         lblStatus.setForeground(Colors.DANGER);
 
-        statusIndicator = new JLabel("●");
+        statusIndicator = new JLabel("");
         statusIndicator.setFont(new Font("Segoe UI", Font.BOLD, 14));
         statusIndicator.setForeground(Colors.DANGER);
 
