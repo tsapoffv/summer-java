@@ -87,10 +87,10 @@ public class SetupPanel extends JPanel {
         board = new BoardPanel(Constants.BOARD_SIZE, Constants.CELL_SIZE, BoardPanel.Mode.SETUP);
         shipPalette = new JPanel();
         lblInfo = new JLabel("Выберите корабль и разместите на поле", SwingConstants.CENTER);
-        btnRotate = new GradientButton("↻ Повернуть (R)", new Color(59, 130, 246), new Color(37, 99, 235));
-        btnAuto = new GradientButton("🎲 Авто", new Color(139, 92, 246), new Color(124, 58, 237));
-        btnClear = new GradientButton("🗑 Очистить", new Color(100, 116, 139), new Color(71, 85, 105));
-        btnReady = new GradientButton("✓ Готов", Colors.ACCENT_TEAL, new Color(20, 130, 120));
+        btnRotate = new GradientButton(" Повернуть (R)", new Color(59, 130, 246), new Color(37, 99, 235));
+        btnAuto = new GradientButton(" Авто", new Color(139, 92, 246), new Color(124, 58, 237));
+        btnClear = new GradientButton(" Очистить", new Color(100, 116, 139), new Color(71, 85, 105));
+        btnReady = new GradientButton(" Готов", Colors.ACCENT_TEAL, new Color(20, 130, 120));
 
         lblInfo.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         lblInfo.setForeground(Colors.TEXT_SECONDARY);
@@ -356,7 +356,7 @@ public class SetupPanel extends JPanel {
         };
         shipVisual.setOpaque(false);
 
-        JLabel countLabel = new JLabel("×" + count);
+        JLabel countLabel = new JLabel("" + count);
         countLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         countLabel.setForeground(Colors.ACCENT_GOLD);
 
