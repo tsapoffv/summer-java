@@ -71,13 +71,13 @@ public class BattlePanel extends JPanel {
         myBoard = new BoardPanel(Constants.BOARD_SIZE, Constants.CELL_SIZE, BoardPanel.Mode.MY_FIELD);
         enemyBoard = new BoardPanel(Constants.BOARD_SIZE, Constants.CELL_SIZE, BoardPanel.Mode.ENEMY_FIELD);
         log = new EventLog();
-        btnSurrender = new GradientButton("🏳 Сдаться", Colors.DANGER, new Color(185, 28, 28));
+        btnSurrender = new GradientButton(" Сдаться", Colors.DANGER, new Color(185, 28, 28));
 
         lblStatus = new JLabel("Ожидание начала боя...", SwingConstants.CENTER);
         lblStatus.setFont(new Font("Segoe UI", Font.BOLD, 18));
         lblStatus.setForeground(Colors.TEXT_SECONDARY);
 
-        lblStatusIcon = new JLabel("⚔", SwingConstants.CENTER);
+        lblStatusIcon = new JLabel("", SwingConstants.CENTER);
         lblStatusIcon.setFont(new Font("Segoe UI", Font.PLAIN, 24));
 
         lblShipsRemaining = new JLabel("Ваши корабли: 10  |  Корабли врага: 10", SwingConstants.CENTER);
@@ -142,8 +142,8 @@ public class BattlePanel extends JPanel {
         JPanel boards = new JPanel(new GridLayout(1, 2, 20, 0));
         boards.setOpaque(false);
 
-        boards.add(createBoardWrapper("🛡 Ваше поле", myBoard));
-        boards.add(createBoardWrapper("🎯 Поле противника", enemyBoard));
+        boards.add(createBoardWrapper(" Ваше поле", myBoard));
+        boards.add(createBoardWrapper(" Поле противника", enemyBoard));
 
         return boards;
     }
@@ -265,7 +265,7 @@ public class BattlePanel extends JPanel {
 
         lblStatus.setText("Бой начался! " + info);
         lblStatus.setForeground(Colors.TEXT_PRIMARY);
-        lblStatusIcon.setText("⚔");
+        lblStatusIcon.setText("");
         updateShipCount();
 
         log.clear();
@@ -299,12 +299,12 @@ public class BattlePanel extends JPanel {
         if (turn) {
             lblStatus.setText("ВАШ ХОД — выберите клетку на поле противника");
             lblStatus.setForeground(Colors.SUCCESS);
-            lblStatusIcon.setText("🎯");
+            lblStatusIcon.setText("");
             log.addEvent("Ваш ход!", EventLog.EventType.SUCCESS);
         } else {
             lblStatus.setText("Ход противника...");
             lblStatus.setForeground(Colors.TEXT_SECONDARY);
-            lblStatusIcon.setText("⏳");
+            lblStatusIcon.setText("");
         }
     }
 
