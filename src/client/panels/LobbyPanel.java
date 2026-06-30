@@ -83,8 +83,8 @@ public class LobbyPanel extends JPanel {
         btnPanel.setOpaque(false);
         btnPanel.setBorder(new EmptyBorder(10, 0, 0, 0));
 
-        btnRefresh = new GradientButton("↻ Обновить", new Color(59, 130, 246), new Color(37, 99, 235));
-        btnChallenge = new GradientButton("⚔ Вызвать на бой", Colors.ACCENT_GOLD, Colors.ACCENT_GOLD_HOVER);
+        btnRefresh = new GradientButton(" Обновить", new Color(59, 130, 246), new Color(37, 99, 235));
+        btnChallenge = new GradientButton(" Вызвать на бой", Colors.ACCENT_GOLD, Colors.ACCENT_GOLD_HOVER);
 
         for (GradientButton btn : new GradientButton[]{btnRefresh, btnChallenge}) {
             btn.setPreferredSize(new Dimension(160, 42));
